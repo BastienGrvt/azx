@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AlphaZero : le plan de montage (mctx + pgx)</title>
+<style>
+  :root{
+    --bg:#0d1117; --bg2:#161b22; --bg3:#1c2330; --border:#30363d;
+    --fg:#e6edf3; --muted:#9da7b3; --accent:#58a6ff; --accent2:#79c0ff;
+    --green:#3fb950; --greenD:#12261a; --orange:#e3a008; --orangeD:#26201a;
+    --red:#f85149; --redD:#2d1518; --purple:#bc8cff; --purpleD:#1a1626;
+    --code:#0b0f16;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.7;font-size:16px}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  main{max-width:900px;margin:0 auto;padding:40px 36px 120px}
+  @media(max-width:720px){main{padding:24px 14px}}
+
+  header{text-align:center;margin-bottom:40px;padding:38px 20px;background:linear-gradient(160deg,#161b22,#1a1430);border:1px solid var(--border);border-radius:16px}
+  header h1{font-size:33px;margin:0 0 10px}
+  header .sub{color:var(--muted);font-size:16px;max-width:620px;margin:0 auto}
+
+  .toc{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:28px 0 44px}
+  .toc a{background:var(--bg2);border:1px solid var(--border);border-radius:20px;padding:6px 14px;font-size:13px;color:var(--muted)}
+  .toc a:hover{color:var(--fg);border-color:var(--purple);text-decoration:none}
+  .toc a b{color:var(--purple);margin-right:5px}
+
+  section{margin-bottom:66px;scroll-margin-top:20px}
+  h2{font-size:26px;margin-top:0;display:flex;align-items:center;gap:12px}
+  h2 .chap{flex-shrink:0;width:40px;height:40px;border-radius:12px;background:var(--purple);color:#0d1117;font-size:19px;font-weight:800;display:flex;align-items:center;justify-content:center}
+  h3{font-size:19px;color:var(--accent2);margin-top:34px}
+  p{color:#c9d3de}
+  code:not(pre code){background:var(--bg3);padding:2px 6px;border-radius:5px;font-family:"SF Mono",Consolas,Menlo,monospace;font-size:.88em;color:var(--accent2)}
+  ul,ol{color:#c9d3de}
+  li{margin:6px 0}
+
+  .box{border-radius:10px;padding:16px 20px;margin:22px 0;border:1px solid var(--border);background:var(--bg2)}
+  .box .t{font-weight:700;margin-bottom:6px}
+  .box.info{border-left:4px solid var(--accent)}.box.info .t{color:var(--accent)}
+  .box.warn{border-left:4px solid var(--orange)}.box.warn .t{color:var(--orange)}
+  .box.key{border-left:4px solid var(--green);background:var(--greenD)}.box.key .t{color:var(--green)}
+  .box.story{border-left:4px solid var(--purple);background:var(--purpleD)}.box.story .t{color:var(--purple)}
+
+  pre{background:var(--code);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+    font-family:"SF Mono",Consolas,Menlo,monospace;font-size:13.2px;line-height:1.6}
+  pre code{color:#c9d3de}
+  .kw{color:#ff7b72}.str{color:#a5d6ff}.com{color:#8b949e;font-style:italic}.fn{color:#d2a8ff}.num{color:#79c0ff}.ty{color:#ffa657}
+
+  table{border-collapse:collapse;width:100%;margin:18px 0;font-size:14px}
+  th,td{border:1px solid var(--border);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--bg3);color:var(--accent2)}
+  tr:nth-child(even){background:var(--bg2)}
+
+  .shape{display:inline-block;background:#1f2d1f;color:var(--green);border:1px solid #2d4a2d;border-radius:5px;padding:1px 8px;font-family:monospace;font-size:13px}
+  .diagram{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:22px;margin:24px 0;text-align:center;overflow-x:auto}
+  .cap{color:var(--muted);font-size:13px;margin-top:12px;font-style:italic;text-align:center}
+
+  /* ══ animation : la boucle vertueuse ══ */
+  .loopanim{border:2px solid var(--purple);border-radius:16px;background:#120d1c;padding:22px;margin:26px 0}
+  .loopanim .controls{display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap}
+  .loopanim button{background:var(--purple);border:none;color:#0d1117;font-weight:700;font-size:14px;padding:8px 16px;border-radius:8px;cursor:pointer;font-family:inherit}
+  .loopanim button:hover{filter:brightness(1.15)}
+  .stations{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:640px){.stations{grid-template-columns:repeat(2,1fr)}}
+  .station{background:var(--bg2);border:2px solid var(--border);border-radius:12px;padding:14px 10px;text-align:center;transition:all .4s}
+  .station .ico{font-size:26px}
+  .station .nm{font-weight:700;font-size:13.5px;margin-top:4px}
+  .station .ds{font-size:11px;color:var(--muted);margin-top:2px}
+  .station.on{border-color:var(--purple);background:#231a35;box-shadow:0 0 16px rgba(188,140,255,.35);transform:translateY(-3px)}
+  .genbar{margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .genbar .glabel{font-family:monospace;font-size:13px;color:var(--purple);min-width:120px}
+  .genbar .track{flex:1;height:14px;background:var(--bg3);border-radius:7px;overflow:hidden;min-width:150px}
+  .genbar .fill{height:100%;width:2%;background:linear-gradient(90deg,#bc8cff,#3fb950);border-radius:7px;transition:width .5s}
+
+  /* ══ animation : atelier self-play ══ */
+  .atelier{border:2px solid var(--orange);border-radius:16px;background:#151005;padding:22px;margin:26px 0}
+  .atelier h3{margin-top:0;color:var(--orange)}
+  .atelier .controls{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+  .atelier button{background:var(--orange);border:none;color:#0d1117;font-weight:700;font-size:14px;padding:8px 16px;border-radius:8px;cursor:pointer;font-family:inherit}
+  .atelier button:hover{filter:brightness(1.15)}
+  .atelier button.sec{background:var(--bg3);color:var(--fg);border:1px solid var(--border)}
+  .stage{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;margin-top:10px}
+  .stage .live{flex:0 0 auto;text-align:center}
+  .stage .dataset{flex:1;min-width:300px}
+  .ttt{display:grid;grid-template-columns:repeat(3,42px);grid-template-rows:repeat(3,42px);gap:3px;margin:8px auto}
+  .ttt div{background:var(--bg3);border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:21px;font-family:monospace}
+  .ttt .X{color:var(--accent2)} .ttt .O{color:var(--red)}
+  .ttt .last{outline:2px solid var(--orange)}
+  .pi3{display:grid;grid-template-columns:repeat(3,42px);grid-template-rows:repeat(3,42px);gap:3px;margin:8px auto}
+  .pi3 div{border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:9.5px;font-family:monospace;color:#0d1117;font-weight:700}
+  .lvlbl{font-size:12px;color:var(--muted);font-family:monospace}
+  .dstable{width:100%;border-collapse:collapse;font-family:monospace;font-size:12px}
+  .dstable th{background:var(--bg3);color:var(--orange);border:1px solid var(--border);padding:5px 8px;font-size:11.5px}
+  .dstable td{border:1px solid var(--border);padding:4px 8px;text-align:center;color:#c9d3de}
+  .dstable tr.new td{animation:rowin .5s}
+  @keyframes rowin{from{background:#3a2a08}to{background:transparent}}
+  .dstable td.zp{color:var(--green);font-weight:800}
+  .dstable td.zn{color:var(--red);font-weight:800}
+  .dstable td.zq{color:var(--muted)}
+  .atmsg{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-top:12px;font-family:monospace;font-size:12.5px;color:#c9d3de;min-height:40px}
+  .atmsg .hl{color:var(--orange);font-weight:700}
+  .atmsg .gd{color:var(--green);font-weight:700}
+
+  /* pieces */
+  .piece{border:2px solid var(--accent);border-radius:14px;margin:28px 0;overflow:hidden}
+  .piece .phead{background:var(--accent);color:#0d1117;font-weight:800;padding:9px 18px;font-size:15px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .piece .phead .pn{background:#0d1117;color:var(--accent2);width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .piece .pbody{padding:4px 18px 14px}
+  .piece pre{margin:10px 0}
+
+  details{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:0 18px;margin:16px 0}
+  details[open]{padding-bottom:12px}
+  summary{cursor:pointer;padding:14px 0;font-weight:600;color:var(--accent2);list-style:none}
+  summary::before{content:"▶ ";font-size:11px;color:var(--muted)}
+  details[open] summary::before{content:"▼ "}
+
+  .foot{color:var(--muted);font-size:13px;text-align:center;margin-top:60px}
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>🛠️ AlphaZero : le plan de montage</h1>
+  <div class="sub">Le guide de synthèse : on <b>réinvente</b> AlphaZero pièce par pièce — et à chaque
+  fois qu'on a besoin d'une pièce, on découvre que mctx ou pgx l'a déjà fabriquée, avec exactement
+  la forme qu'on aurait choisie.</div>
+</header>
+
+<div class="toc">
+  <a href="#c1"><b>1</b> Le cercle vertueux</a>
+  <a href="#c2"><b>2</b> Inventer l'API soi-même</a>
+  <a href="#c3"><b>3</b> ⚙️ L'atelier self-play (animé)</a>
+  <a href="#c4"><b>4</b> L'école du réseau</a>
+  <a href="#c5"><b>5</b> Le montage : 5 pièces de code</a>
+  <a href="#c6"><b>6</b> Les pièges</a>
+  <a href="#c7"><b>7</b> Rampe de lancement</a>
+</div>
+
+<!-- ================================================================ -->
+<section id="c1">
+<h2><span class="chap">1</span> Le cercle vertueux : le moteur de tout</h2>
+
+<div class="box story">
+  <div class="t">📖 On part du cahier des charges</div>
+  <p style="margin:0">
+  « Un programme qui part de <b>zéro connaissance</b> et devient fort à un jeu, <b>seul</b>,
+  sans données humaines. » Comment tu t'y prendrais ? Il te faut un joueur… mais pour apprendre,
+  il faut un professeur meilleur que le joueur. Et tu n'en as pas. <b>L'idée géniale d'AlphaZero :
+  fabriquer le professeur à partir du joueur lui-même</b>, en le faisant réfléchir plus longtemps.
+  </p>
+</div>
+
+<p>Tu connais le principe — mais regarde-le tourner comme une <b>machine</b>, car c'est cette
+machine qu'on va construire pièce par pièce :</p>
+
+<div class="loopanim">
+  <div class="stations">
+    <div class="station" id="st0">
+      <div class="ico">🧠</div><div class="nm">Le réseau f<sub>k</sub></div>
+      <div class="ds">l'élève : (p, v) instantanés</div>
+    </div>
+    <div class="station" id="st1">
+      <div class="ico">🎮</div><div class="nm">Self-play</div>
+      <div class="ds">le prof : MCTS (mctx) sur les règles (pgx)</div>
+    </div>
+    <div class="station" id="st2">
+      <div class="ico">📦</div><div class="nm">Dataset</div>
+      <div class="ds">(obs, π, z) : les corrigés</div>
+    </div>
+    <div class="station" id="st3">
+      <div class="ico">🎓</div><div class="nm">Entraînement</div>
+      <div class="ds">optax : p→π, v→z ⇒ f<sub>k+1</sub></div>
+    </div>
+  </div>
+  <div class="genbar">
+    <span class="glabel" id="genLbl">génération 0</span>
+    <div class="track"><div class="fill" id="genFill"></div></div>
+    <span class="lvlbl" id="genForce">force : débutant</span>
+  </div>
+  <div class="controls">
+    <button id="loopBtn" onclick="loopToggle()">⏸ Pause</button>
+    <span class="lvlbl">La machine tourne : chaque tour complet = une génération plus forte, car le
+    MCTS produit toujours des cibles <em>meilleures</em> que l'intuition du moment.</span>
+  </div>
+</div>
+
+<div class="box key">
+  <div class="t">✅ Pourquoi ça ne peut que monter</div>
+  <p style="margin:0">
+  Le point fixe du système : le MCTS guidé par f produit une politique π <b>au moins aussi bonne</b>
+  que p (c'est un opérateur d'amélioration — les visites corrigent le prior, tu l'as vu dans le
+  <a href="mctx_pgx_quide_V2.html#c4">simulateur du guide V2</a>). Entraîner f vers π « distille »
+  cette amélioration dans l'intuition. Au tour suivant, le MCTS part d'une meilleure intuition et
+  produit un π encore meilleur. <b>L'élève d'aujourd'hui devient le professeur de demain.</b>
+  </p>
+</div>
+
+<p>Notre plan de montage suit ce cercle : chapitre 2 = les pièces (réseau, recherche, règles),
+chapitre 3 = le self-play et ses corrigés, chapitre 4 = l'école, chapitre 5 = tout assembler.</p>
+</section>
+
+<!-- ================================================================ -->
+<section id="c2">
+<h2><span class="chap">2</span> Et si tu inventais l'API toi-même ?</h2>
+
+<p>
+Le meilleur moyen de trouver mctx et pgx « évidents » : faire semblant qu'ils n'existent pas,
+et dessiner ce que <em>toi</em> tu écrirais. Trois exercices de conception, trente secondes chacun.
+</p>
+
+<h3>Exercice A — tu écris une lib MCTS générique</h3>
+<div class="box story">
+  <div class="t">📖 Ta réflexion de concepteur</div>
+  <p style="margin:0">
+  « Ma lib doit marcher pour <em>n'importe quel jeu</em>, donc je ne peux dépendre ni des règles ni
+  du réseau de l'utilisateur. Le MCTS lui-même (PUCT, expansion, backup), je sais l'écrire une fois
+  pour toutes. De quoi ai-je besoin de la part de l'utilisateur ? De <b>deux choses seulement</b> :
+  <br>— <b>où commencer</b> : ce que son réseau pense de la position racine (prior, value) + la position ;
+  <br>— <b>comment avancer d'un coup</b> : une fonction qui prend (position, action) et me rend ce que
+  j'ai besoin de savoir sur le résultat : récompense, si c'est fini, et l'avis du réseau sur la suite. »
+  </p>
+</div>
+<p>Tu viens d'inventer, champ pour champ, l'API de mctx :</p>
+<table>
+<tr><th>Ce que tu aurais demandé</th><th>Le nom que mctx lui donne</th></tr>
+<tr><td>« où commencer » = (prior, value, position)</td><td><code>mctx.RootFnOutput(prior_logits, value, embedding)</code></td></tr>
+<tr><td>« comment avancer » = f(position, action) → (récompense, fini?, avis réseau, position suivante)</td><td><code>recurrent_fn → (RecurrentFnOutput, new_embedding)</code></td></tr>
+<tr><td>« lance N simulations, rends-moi le π amélioré »</td><td><code>mctx.gumbel_muzero_policy(...) → PolicyOutput</code></td></tr>
+</table>
+<p>
+Le seul nom non évident, <code>embedding</code>, vient du fait que la lib est agnostique : elle ne
+sait pas ce qu'est ta « position » (un plateau ? un vecteur latent ?), alors elle la transporte en
+boîte noire et te la rend telle quelle. <b>C'est un simple colis.</b>
+</p>
+
+<h3>Exercice B — tu écris une lib de jeux pour GPU</h3>
+<p>
+« Mes jeux doivent tourner par milliers en parallèle sous JAX → pas d'objets mutables, tout en
+tableaux : l'état est une donnée, jouer est une fonction pure <code>state' = step(state, action)</code>.
+Et pour que l'IA soit réutilisable d'un jeu à l'autre, tous mes états exposent les mêmes champs :
+l'observation pour le réseau, le masque des coups légaux, qui joue, les gains, fini ou pas. »
+→ Tu viens d'inventer pgx (<code>State</code> + <code>init/step/observe</code>). Le raisonnement
+complet est dans le <a href="pgx_standard_environnements.html">guide du standard pgx</a>.
+</p>
+
+<h3>Exercice C — tu branches les deux</h3>
+<p>
+« mctx veut une fonction (position, action) → résultat. pgx me donne <code>env.step</code> qui fait
+(position, action) → position. Il manque juste l'avis du réseau sur la position obtenue… donc ma
+<code>recurrent_fn</code> = <code>env.step</code> <b>puis</b> <code>forward</code>, et le colis
+<code>embedding</code> = le <code>State</code> pgx. » Voilà. Tout le branchement tient dans cette
+phrase — le schéma complet :
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 800 335" xmlns="http://www.w3.org/2000/svg" font-family="monospace" font-size="12">
+  <defs><marker id="mapm" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#8b949e"/></marker></defs>
+
+  <text x="400" y="24" fill="#e6edf3" text-anchor="middle" font-size="14" font-weight="bold">LA CARTE COMPLÈTE — un coup de jeu, vu par les données</text>
+
+  <!-- state -->
+  <rect x="25" y="55" width="150" height="90" rx="12" fill="#12261a" stroke="#3fb950" stroke-width="2"/>
+  <text x="100" y="80" fill="#3fb950" text-anchor="middle" font-weight="bold">State (pgx)</text>
+  <text x="100" y="100" fill="#9da7b3" text-anchor="middle" font-size="10.5">observation</text>
+  <text x="100" y="116" fill="#9da7b3" text-anchor="middle" font-size="10.5">legal_action_mask</text>
+  <text x="100" y="132" fill="#9da7b3" text-anchor="middle" font-size="10.5">current_player…</text>
+
+  <!-- network -->
+  <rect x="240" y="55" width="140" height="90" rx="12" fill="#1a1626" stroke="#bc8cff" stroke-width="2"/>
+  <text x="310" y="85" fill="#bc8cff" text-anchor="middle" font-weight="bold">forward</text>
+  <text x="310" y="107" fill="#9da7b3" text-anchor="middle" font-size="10.5">obs → (logits p,</text>
+  <text x="310" y="123" fill="#9da7b3" text-anchor="middle" font-size="10.5">value v)</text>
+
+  <!-- root -->
+  <rect x="445" y="55" width="140" height="90" rx="12" fill="#1f2d3d" stroke="#58a6ff" stroke-width="2"/>
+  <text x="515" y="83" fill="#79c0ff" text-anchor="middle" font-weight="bold">RootFnOutput</text>
+  <text x="515" y="105" fill="#9da7b3" text-anchor="middle" font-size="10.5">p · v ·</text>
+  <text x="515" y="121" fill="#9da7b3" text-anchor="middle" font-size="10.5">embedding=State 📦</text>
+
+  <!-- policy -->
+  <rect x="645" y="55" width="140" height="90" rx="12" fill="#26201a" stroke="#e3a008" stroke-width="2"/>
+  <text x="715" y="80" fill="#e3a008" text-anchor="middle" font-weight="bold">gumbel_muzero</text>
+  <text x="715" y="96" fill="#e3a008" text-anchor="middle" font-weight="bold">_policy</text>
+  <text x="715" y="118" fill="#9da7b3" text-anchor="middle" font-size="10.5">N simulations</text>
+  <text x="715" y="134" fill="#9da7b3" text-anchor="middle" font-size="10.5">→ action · π</text>
+
+  <line x1="175" y1="100" x2="238" y2="100" stroke="#8b949e" stroke-width="1.5" marker-end="url(#mapm)"/>
+  <text x="207" y="91" fill="#9da7b3" text-anchor="middle" font-size="10">obs</text>
+  <line x1="380" y1="100" x2="443" y2="100" stroke="#8b949e" stroke-width="1.5" marker-end="url(#mapm)"/>
+  <text x="412" y="91" fill="#9da7b3" text-anchor="middle" font-size="10">(p, v)</text>
+  <line x1="585" y1="100" x2="643" y2="100" stroke="#8b949e" stroke-width="1.5" marker-end="url(#mapm)"/>
+  <text x="614" y="91" fill="#9da7b3" text-anchor="middle" font-size="10">root</text>
+
+  <!-- recurrent_fn -->
+  <rect x="240" y="205" width="345" height="76" rx="12" fill="#26201a" stroke="#e3a008" stroke-dasharray="5" stroke-width="1.5"/>
+  <text x="412" y="230" fill="#e3a008" text-anchor="middle" font-weight="bold">recurrent_fn — appelée N fois PAR mctx</text>
+  <text x="412" y="251" fill="#c9d3de" text-anchor="middle" font-size="11">= vmap(env.step) 📏  puis  forward 🧠</text>
+  <text x="412" y="269" fill="#9da7b3" text-anchor="middle" font-size="10.5">reçoit le colis 📦 (State), rend (reward, discount, p, v) + colis suivant</text>
+
+  <path d="M700 145 C 700 235, 640 243, 587 243" fill="none" stroke="#e3a008" stroke-width="1.5" marker-end="url(#mapm)"/>
+  <text x="688" y="230" fill="#e3a008" font-size="10.5">(📦, coup) ↺</text>
+  <path d="M100 145 C 100 243, 175 243, 238 243" fill="none" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4" marker-end="url(#mapm)"/>
+  <text x="128" y="230" fill="#3fb950" font-size="10.5">legal_mask → invalid_actions</text>
+
+  <text x="400" y="318" fill="#9da7b3" text-anchor="middle" font-size="11.5">Vert = pgx (règles) · Violet = ton réseau · Bleu/Orange = mctx · 📦 = le State voyage en boîte noire</text>
+</svg>
+<div class="cap">Retiens cette carte : les 4 objets clés et les 3 flèches à écrire toi-même (obs→forward, (p,v)→root, step+forward→recurrent_fn).</div>
+</div>
+
+<div class="box key">
+  <div class="t">✅ Le déclic de conception</div>
+  <p style="margin:0">L'API n'a rien d'arbitraire : c'est la <b>plus petite interface possible</b>
+  entre trois modules qui s'ignorent (règles / intuition / recherche). Tu l'aurais dessinée pareil.
+  À partir d'ici, on ne « apprend » plus l'API — on l'<b>utilise</b>.</p>
+</div>
+</section>
+
+<!-- ================================================================ -->
+<section id="c3">
+<h2><span class="chap">3</span> ⚙️ L'atelier self-play : d'où viennent les données ?</h2>
+
+<div class="box story">
+  <div class="t">📖 Le problème suivant</div>
+  <p style="margin:0">
+  La machine du chapitre 1 a besoin de « corrigés » pour l'école. Que stocker exactement ?
+  Le réseau a deux têtes, il faut donc deux cibles par position : <br>
+  — pour la tête <b>policy</b> : une meilleure réponse que la sienne → le <b>π du MCTS</b>
+  (on l'a déjà, c'est <code>action_weights</code> !) ;<br>
+  — pour la tête <b>value</b> : la vraie valeur de la position → on ne la connaît pas… <b>sauf en
+  fin de partie</b>. D'où l'astuce : jouer jusqu'au bout, puis <b>ré-étiqueter rétroactivement</b>
+  toutes les positions de la partie avec le résultat final z = ±1.
+  </p>
+</div>
+
+<p>
+C'est la partie la plus piégeuse à implémenter (le z rétroactif et son signe). Regarde-la
+tourner : une partie de morpion se joue sous tes yeux, chaque coup ajoute une ligne au dataset
+avec z = « ? »… qui sera rempli à la fin.
+</p>
+
+<div class="atelier">
+<h3>🎬 Une partie de self-play, image par image</h3>
+<div class="controls">
+  <button onclick="atStep()">▶ Coup suivant</button>
+  <button onclick="atAll()">⏩ Jusqu'au bout</button>
+  <button class="sec" onclick="atReset()">↺ Rejouer</button>
+</div>
+<div class="stage">
+  <div class="live">
+    <div class="lvlbl">position sₜ</div>
+    <div class="ttt" id="atBoard"></div>
+    <div class="lvlbl">π du MCTS (32 sims)</div>
+    <div class="pi3" id="atPi"></div>
+    <div class="lvlbl" id="atWho">au trait : —</div>
+  </div>
+  <div class="dataset">
+    <div class="lvlbl" style="margin-bottom:6px">📦 dataset de la partie (une ligne = un exemple d'entraînement)</div>
+    <table class="dstable">
+      <thead><tr><th>t</th><th>obs</th><th>au trait</th><th>cible π</th><th>cible z</th></tr></thead>
+      <tbody id="atRows"></tbody>
+    </table>
+  </div>
+</div>
+<div class="atmsg" id="atMsg">Prêt. Le réseau joue contre lui-même ; à chaque coup, le MCTS produit un π. Clique sur « Coup suivant ».</div>
+</div>
+
+<div class="box key">
+  <div class="t">✅ Les deux règles d'or que l'animation vient de montrer</div>
+  <ul style="margin:6px 0 0">
+    <li><b>π se stocke pendant la partie</b> — c'est le <code>action_weights</code> du coup, on
+        l'a gratuitement à chaque appel de mctx.</li>
+    <li><b>z se remplit à la fin, du point de vue du joueur au trait</b> : X a gagné ⇒ toutes les
+        positions où <em>X était au trait</em> reçoivent z = +1, celles où O était au trait
+        z = −1. En pratique pgx fait ce travail pour nous : on cumule <code>state.rewards</code>
+        (vecteur par agent) le long de la partie, puis
+        <code>z_t = retours[joueur_au_trait_en_t]</code>. Pas de comptage de signes à la main.</li>
+  </ul>
+</div>
+
+<details>
+<summary>🤔 Et dans un jeu avec récompenses en cours de partie ?</summary>
+<p style="margin-top:0">Le morpion n'a de récompense qu'au dernier coup, donc « sommer les rewards »
+= « prendre le résultat final ». Dans le cas général, la cible value est le retour actualisé
+<code>z_t = r_t + γ·r_{t+1} + …</code>, calculé par un scan arrière (c'est le <code>body_fn</code>
+de l'exemple officiel pgx). Même idée : on étiquette le passé avec ce que le futur a révélé.</p>
+</details>
+</section>
+
+<!-- ================================================================ -->
+<section id="c4">
+<h2><span class="chap">4</span> L'école du réseau : deux têtes, deux leçons</h2>
+
+<p>
+Une fois le dataset rempli, l'école est étonnamment banale — c'est de l'apprentissage supervisé
+standard. Chaque tête du réseau est tirée vers sa cible :
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 760 250" xmlns="http://www.w3.org/2000/svg" font-family="monospace" font-size="12.5">
+  <defs><marker id="c4mm" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#8b949e"/></marker></defs>
+
+  <rect x="30" y="90" width="130" height="70" rx="10" fill="#161b22" stroke="#30363d"/>
+  <text x="95" y="120" fill="#c9d3de" text-anchor="middle">obs</text>
+  <text x="95" y="140" fill="#9da7b3" text-anchor="middle" font-size="10.5">du dataset</text>
+
+  <rect x="230" y="80" width="150" height="90" rx="12" fill="#1a1626" stroke="#bc8cff" stroke-width="2"/>
+  <text x="305" y="115" fill="#bc8cff" text-anchor="middle" font-weight="bold">réseau f</text>
+  <text x="305" y="140" fill="#9da7b3" text-anchor="middle" font-size="10.5">tronc commun</text>
+
+  <line x1="160" y1="125" x2="228" y2="125" stroke="#8b949e" stroke-width="1.5" marker-end="url(#c4mm)"/>
+
+  <!-- policy head -->
+  <rect x="470" y="30" width="120" height="56" rx="10" fill="#1f2d3d" stroke="#58a6ff" stroke-width="2"/>
+  <text x="530" y="54" fill="#79c0ff" text-anchor="middle" font-weight="bold">tête policy</text>
+  <text x="530" y="74" fill="#9da7b3" text-anchor="middle" font-size="10.5">logits p</text>
+  <line x1="380" y1="105" x2="468" y2="65" stroke="#8b949e" stroke-width="1.5" marker-end="url(#c4mm)"/>
+
+  <!-- value head -->
+  <rect x="470" y="160" width="120" height="56" rx="10" fill="#1f2d3d" stroke="#58a6ff" stroke-width="2"/>
+  <text x="530" y="184" fill="#79c0ff" text-anchor="middle" font-weight="bold">tête value</text>
+  <text x="530" y="204" fill="#9da7b3" text-anchor="middle" font-size="10.5">v ∈ [−1, 1]</text>
+  <line x1="380" y1="145" x2="468" y2="185" stroke="#8b949e" stroke-width="1.5" marker-end="url(#c4mm)"/>
+
+  <!-- targets -->
+  <text x="660" y="52" fill="#e3a008" font-weight="bold">⟵ π (MCTS)</text>
+  <text x="660" y="72" fill="#9da7b3" font-size="10.5">cross-entropy</text>
+  <text x="660" y="182" fill="#3fb950" font-weight="bold">⟵ z (résultat)</text>
+  <text x="660" y="202" fill="#9da7b3" font-size="10.5">erreur quadratique</text>
+
+  <text x="390" y="240" fill="#9da7b3" text-anchor="middle" font-size="11.5">perte totale = CE(π, p) + (v − z)²  — deux leçons, un seul tronc, un seul optimiseur.</text>
+</svg>
+<div class="cap">La policy apprend du MCTS (« voilà ce qu'une longue réflexion aurait joué »), la value apprend du résultat (« voilà comment ça a fini »).</div>
+</div>
+
+<div class="box story">
+  <div class="t">📖 Pourquoi ces deux leçons suffisent</div>
+  <p style="margin:0">
+  Note la symétrie : chaque tête est entraînée par <b>une version plus informée d'elle-même</b>.
+  p est corrigé par π (la même politique, mais après réflexion) ; v est corrigé par z (la même
+  évaluation, mais après avoir vu la fin). Aucune donnée externe, aucun arbitre humain — juste
+  « le futur corrige le présent ». C'est ça, le bootstrap d'AlphaZero.
+  </p>
+</div>
+</section>
+
+<!-- ================================================================ -->
+<section id="c5">
+<h2><span class="chap">5</span> Le montage final : un AlphaZero en 5 pièces</h2>
+
+<p>
+Voici le programme complet, pour le morpion, en <b>~90 lignes commentées</b>. Chaque pièce
+correspond à un chapitre de ce guide. Ce code privilégie la lisibilité (boucle Python de 9 coups,
+pas de replay buffer) — les raffinements sont au chapitre 7.
+</p>
+
+<div class="piece">
+<div class="phead"><span class="pn">1</span> Le réseau — l'intuition (pur JAX, aucun framework)</div>
+<div class="pbody">
+<p style="font-size:14px">Un MLP minuscule suffit pour le morpion. L'écrire en JAX nu montre qu'il
+n'y a aucune magie : des matrices dans un dict, une fonction <code>forward</code>.</p>
+<pre><code><span class="kw">import</span> jax, optax, pgx, mctx
+<span class="kw">import</span> jax.numpy <span class="kw">as</span> jnp
+
+env = <span class="ty">pgx</span>.<span class="fn">make</span>(<span class="str">"tic_tac_toe"</span>)
+B, SIMS = <span class="num">256</span>, <span class="num">32</span>                     <span class="com"># 256 parties en parallèle, 32 simulations/coup</span>
+
+<span class="kw">def</span> <span class="fn">init_params</span>(key):
+    k1, k2, k3 = <span class="ty">jax</span>.random.<span class="fn">split</span>(key, <span class="num">3</span>)
+    <span class="kw">return</span> {<span class="str">"w1"</span>: <span class="ty">jax</span>.random.<span class="fn">normal</span>(k1, (<span class="num">18</span>, <span class="num">128</span>)) * <span class="num">0.1</span>, <span class="str">"b1"</span>: <span class="ty">jnp</span>.<span class="fn">zeros</span>(<span class="num">128</span>),
+            <span class="str">"wp"</span>: <span class="ty">jax</span>.random.<span class="fn">normal</span>(k2, (<span class="num">128</span>, <span class="num">9</span>)) * <span class="num">0.1</span>,  <span class="str">"bp"</span>: <span class="ty">jnp</span>.<span class="fn">zeros</span>(<span class="num">9</span>),
+            <span class="str">"wv"</span>: <span class="ty">jax</span>.random.<span class="fn">normal</span>(k3, (<span class="num">128</span>, <span class="num">1</span>)) * <span class="num">0.1</span>,  <span class="str">"bv"</span>: <span class="ty">jnp</span>.<span class="fn">zeros</span>(<span class="num">1</span>)}
+
+<span class="kw">def</span> <span class="fn">forward</span>(params, obs):                       <span class="com"># obs [B, 3, 3, 2] → aplati [B, 18]</span>
+    x = obs.<span class="fn">reshape</span>(obs.shape[<span class="num">0</span>], -<span class="num">1</span>).<span class="fn">astype</span>(<span class="ty">jnp</span>.float32)
+    h = <span class="ty">jax</span>.nn.<span class="fn">relu</span>(x @ params[<span class="str">"w1"</span>] + params[<span class="str">"b1"</span>])
+    logits = h @ params[<span class="str">"wp"</span>] + params[<span class="str">"bp"</span>]              <span class="com"># tête policy [B, 9]</span>
+    value  = <span class="ty">jnp</span>.<span class="fn">tanh</span>(h @ params[<span class="str">"wv"</span>] + params[<span class="str">"bv"</span>])[:, <span class="num">0</span>]  <span class="com"># tête value [B] ∈ [-1,1]</span>
+    <span class="kw">return</span> logits, value</code></pre>
+</div>
+</div>
+
+<div class="piece">
+<div class="phead"><span class="pn">2</span> recurrent_fn — le pont règles + intuition (chap. 2, exercice C)</div>
+<div class="pbody">
+<pre><code><span class="kw">def</span> <span class="fn">recurrent_fn</span>(params, key, action, state):
+    joueur = state.current_player                    <span class="com"># qui joue ce coup (AVANT le step !)</span>
+    state  = <span class="ty">jax</span>.<span class="fn">vmap</span>(env.step)(state, action)       <span class="com"># 📏 les règles jouent le coup</span>
+    logits, value = <span class="fn">forward</span>(params, state.observation)  <span class="com"># 🧠 l'intuition évalue la suite</span>
+    logits = <span class="ty">jnp</span>.<span class="fn">where</span>(state.legal_action_mask, logits, -<span class="num">1e9</span>)   <span class="com"># coups interdits → -∞</span>
+
+    reward   = state.rewards[<span class="ty">jnp</span>.<span class="fn">arange</span>(B), joueur]   <span class="com"># le gain du joueur qui a joué</span>
+    value    = <span class="ty">jnp</span>.<span class="fn">where</span>(state.terminated, <span class="num">0.0</span>, value)
+    discount = <span class="ty">jnp</span>.<span class="fn">where</span>(state.terminated, <span class="num">0.0</span>, -<span class="num">1.0</span>) <span class="com"># fini → 0 ; sinon −1 (minimax)</span>
+    <span class="kw">return</span> <span class="ty">mctx</span>.<span class="fn">RecurrentFnOutput</span>(reward=reward, discount=discount,
+                                  prior_logits=logits, value=value), state</code></pre>
+</div>
+</div>
+
+<div class="piece">
+<div class="phead"><span class="pn">3</span> La recherche — un coup réfléchi (la carte du chap. 2)</div>
+<div class="pbody">
+<pre><code><span class="kw">def</span> <span class="fn">chercher</span>(params, key, state):
+    logits, value = <span class="fn">forward</span>(params, state.observation)
+    root = <span class="ty">mctx</span>.<span class="fn">RootFnOutput</span>(prior_logits=logits, value=value,
+                             embedding=state)                <span class="com"># 📦 le colis</span>
+    <span class="kw">return</span> <span class="ty">mctx</span>.<span class="fn">gumbel_muzero_policy</span>(
+        params=params, rng_key=key, root=root, recurrent_fn=recurrent_fn,
+        num_simulations=SIMS,
+        invalid_actions=~state.legal_action_mask)            <span class="com"># pgx informe mctx</span></code></pre>
+</div>
+</div>
+
+<div class="piece">
+<div class="phead"><span class="pn">4</span> Le self-play — l'atelier du chap. 3, en code</div>
+<div class="pbody">
+<pre><code>@jax.jit
+<span class="kw">def</span> <span class="fn">selfplay</span>(params, key):
+    key, k0 = <span class="ty">jax</span>.random.<span class="fn">split</span>(key)
+    state = <span class="ty">jax</span>.<span class="fn">vmap</span>(env.init)(<span class="ty">jax</span>.random.<span class="fn">split</span>(k0, B))   <span class="com"># 256 parties démarrent</span>
+    data, retours = [], <span class="ty">jnp</span>.<span class="fn">zeros</span>((B, <span class="num">2</span>))
+    <span class="kw">for</span> t <span class="kw">in</span> <span class="fn">range</span>(<span class="num">9</span>):                                   <span class="com"># un morpion dure ≤ 9 coups</span>
+        key, ks = <span class="ty">jax</span>.random.<span class="fn">split</span>(key)
+        out = <span class="fn">chercher</span>(params, ks, state)                  <span class="com"># π pour les 256 parties</span>
+        data.<span class="fn">append</span>((state.observation,                    <span class="com"># la ligne du dataset :</span>
+                     out.action_weights,                   <span class="com">#   cible π (déjà prête !)</span>
+                     state.current_player,                 <span class="com">#   pour retrouver z ensuite</span>
+                     ~state.terminated))                   <span class="com">#   masque "partie encore vivante"</span>
+        state   = <span class="ty">jax</span>.<span class="fn">vmap</span>(env.step)(state, out.action)   <span class="com"># on joue le coup choisi</span>
+        retours = retours + state.rewards                  <span class="com"># cumule → résultat final par agent</span>
+    <span class="kw">return</span> data, retours                                   <span class="com"># z sera lu dans `retours`</span></code></pre>
+<p style="font-size:13.5px;color:var(--muted)">Les parties finies avant t=9 « tournent à vide »
+sans rien casser (l'arbitre pgx) — leurs lignes sont neutralisées par le masque. C'est le prix,
+modique, du batch à formes fixes.</p>
+</div>
+</div>
+
+<div class="piece">
+<div class="phead"><span class="pn">5</span> L'école + la boucle — le cercle vertueux, littéralement</div>
+<div class="pbody">
+<pre><code><span class="kw">def</span> <span class="fn">loss_fn</span>(params, obs, pi_cible, z, mask):
+    logits, v = <span class="fn">forward</span>(params, obs)
+    l_pi = <span class="ty">optax</span>.<span class="fn">softmax_cross_entropy</span>(logits, pi_cible)   <span class="com"># tête policy ← π</span>
+    l_v  = (v - z) ** <span class="num">2</span>                                     <span class="com"># tête value  ← z</span>
+    <span class="kw">return</span> <span class="ty">jnp</span>.<span class="fn">sum</span>((l_pi + l_v) * mask) / <span class="ty">jnp</span>.<span class="fn">sum</span>(mask)     <span class="com"># masque des lignes mortes</span>
+
+opt = <span class="ty">optax</span>.<span class="fn">adam</span>(<span class="num">1e-3</span>)
+
+@jax.jit
+<span class="kw">def</span> <span class="fn">train_step</span>(params, opt_state, batch):
+    grads = <span class="ty">jax</span>.<span class="fn">grad</span>(loss_fn)(params, *batch)
+    updates, opt_state = opt.<span class="fn">update</span>(grads, opt_state)
+    <span class="kw">return</span> <span class="ty">optax</span>.<span class="fn">apply_updates</span>(params, updates), opt_state
+
+<span class="com"># ═══ LA BOUCLE DU CHAPITRE 1 ═══</span>
+key = <span class="ty">jax</span>.random.<span class="fn">PRNGKey</span>(<span class="num">0</span>)
+params = <span class="fn">init_params</span>(key); opt_state = opt.<span class="fn">init</span>(params)
+
+<span class="kw">for</span> generation <span class="kw">in</span> <span class="fn">range</span>(<span class="num">200</span>):
+    key, k = <span class="ty">jax</span>.random.<span class="fn">split</span>(key)
+    data, retours = <span class="fn">selfplay</span>(params, k)                <span class="com"># 🎮 le prof fabrique les corrigés</span>
+    <span class="kw">for</span> obs, pi, joueur, mask <span class="kw">in</span> data:                 <span class="com"># 📦 → 🎓 une passe d'école</span>
+        z = retours[<span class="ty">jnp</span>.<span class="fn">arange</span>(B), joueur]             <span class="com"># le z rétroactif de l'atelier !</span>
+        params, opt_state = <span class="fn">train_step</span>(params, opt_state, (obs, pi, z, mask))
+    <span class="com"># → params est devenu f_{k+1} : retour à la case self-play, en plus fort.</span></code></pre>
+</div>
+</div>
+
+<div class="box key">
+  <div class="t">✅ Fais le compte</div>
+  <p style="margin:0">
+  Réseau : ~15 lignes. Pont : ~10. Recherche : ~7. Self-play : ~15. École + boucle : ~20.
+  <b>Un AlphaZero complet et honnête en moins de 100 lignes</b>, parce que chaque module
+  ne fait qu'une chose : pgx les règles, mctx la réflexion, toi l'intuition et la colle.
+  Pour passer au <code>connect_four</code> : changer la chaîne dans <code>pgx.make</code>,
+  les tailles 18/9 du réseau… et c'est tout.
+  </p>
+</div>
+</section>
+
+<!-- ================================================================ -->
+<section id="c6">
+<h2><span class="chap">6</span> Les pièges — la liste de contrôle avant vol</h2>
+
+<p>Les erreurs classiques de première implémentation, toutes déjà croisées dans nos guides :</p>
+
+<table>
+<tr><th>Piège</th><th>Symptôme</th><th>Parade</th></tr>
+<tr><td><code>joueur</code> lu <b>après</b> <code>env.step</code></td><td>le réseau apprend des valeurs inversées, force nulle</td><td>capturer <code>current_player</code> <b>avant</b> le step (pièce 2, ligne 1)</td></tr>
+<tr><td><code>discount = +1</code> en jeu à 2 joueurs</td><td>le MCTS aide l'adversaire (pas de minimax)</td><td><code>−1</code> si la partie continue, <code>0</code> si finie</td></tr>
+<tr><td>logits illégaux non masqués</td><td>π met du poids sur des coups interdits ; pgx punit</td><td><code>where(mask, logits, −1e9)</code> + <code>invalid_actions</code> à mctx</td></tr>
+<tr><td>oublier l'axe batch (B=1)</td><td><code>TypeError</code>/shapes en cascade</td><td>tout est <span class="shape">[B, …]</span> — relire <a href="comprendre_le_batch.html">le guide batch</a></td></tr>
+<tr><td><code>jax.jit(mctx.muzero_policy)</code> directement</td><td><code>TypeError: … recurrent_fn … abstract array</code></td><td>jit-ter <b>ta</b> fonction enveloppante (comme <code>selfplay</code>), pas la policy avec sa fonction en argument</td></tr>
+<tr><td>entraîner sur les lignes « partie déjà finie »</td><td>cibles vides qui diluent la loss</td><td>le masque <code>~terminated</code> (pièces 4 et 5)</td></tr>
+<tr><td>évaluer avec l'action échantillonnée</td><td>résultats bruités, « il joue mal parfois »</td><td>en évaluation : argmax des visites (température → 0) ; l'échantillonnage n'est utile qu'en self-play (exploration)</td></tr>
+</table>
+</section>
+
+<!-- ================================================================ -->
+<section id="c7">
+<h2><span class="chap">7</span> Rampe de lancement</h2>
+
+<p>Le code du chapitre 5 est ton point de départ. La progression que je te conseille, chaque
+étape étant un petit saut depuis la précédente :</p>
+
+<ol>
+  <li><b>Fais-le tourner sur le morpion</b> et trace la loss + le taux de victoire contre un joueur
+      aléatoire. Tu devrais voir le réseau dépasser 90&nbsp;% en quelques générations — ton premier
+      cercle vertueux qui tourne.</li>
+  <li><b>Mesure proprement</b> : fais jouer f<sub>k</sub> contre f<sub>k−10</sub> (les couleurs
+      étant mélangées par pgx, un simple win-rate suffit). La force doit monter de façon monotone.</li>
+  <li><b>Industrialise le self-play</b> : remplace la boucle Python de 9 coups par
+      <code>jax.lax.scan</code> + <code>pgx.experimental.auto_reset</code> (parties de longueur
+      variable, GPU saturé). Modèle : <code>~/dev/libs/pgx/examples/alphazero/train.py</code>.</li>
+  <li><b>Change de jeu</b> : <code>connect_four</code>, puis <code>go_9x9</code>. Le MLP ne suffira
+      plus → un petit ResNet (le <code>AZNet</code> de l'exemple pgx). Note que <b>rien d'autre ne
+      change</b> — c'est la récompense des contrats du chapitre 2.</li>
+  <li><b>Ajoute les raffinements</b> qui font les gros écarts : replay buffer (rejouer les données
+      plusieurs fois), plus de simulations en évaluation qu'en self-play, checkpoints.</li>
+</ol>
+
+<div class="box info">
+  <div class="t">📚 La bibliothèque du projet (tes guides, dans l'ordre de lecture)</div>
+  <ul style="margin:6px 0 0">
+    <li><a href="comprendre_le_batch.html">Comprendre le batch</a> — la grammaire <span class="shape">[B, A]</span>.</li>
+    <li><a href="mctx_pgx_quide_V2.html">mctx pour AlphaZéristes (V2)</a> — la mécanique MCTS/PUCT, avec le simulateur interactif.</li>
+    <li><a href="pgx_standard_environnements.html">Le standard pgx</a> — les environnements, jusqu'à créer le tien.</li>
+    <li><b>Ce guide</b> — l'assemblage complet.</li>
+    <li><a href="mctx_pgx_guide.html">Guide V1</a> — la fiche de référence API, pour plus tard.</li>
+  </ul>
+</div>
+
+<div class="box key">
+  <div class="t">✅ Le résumé que tu peux te réciter</div>
+  <p style="margin:0">
+  <b>Un réseau à deux têtes donne une intuition ; mctx la transforme en réflexion (il ne demande
+  que la racine et « comment jouer un coup ») ; pgx fournit ce coup ; on stocke (obs, π, z) où π
+  vient de la recherche et z de la fin de partie ; on tire les deux têtes vers ces cibles ; et on
+  recommence avec un réseau plus fort.</b> Si cette phrase te paraît évidente — et elle devrait,
+  maintenant — tu es prêt à écrire ton AlphaZero.
+  </p>
+</div>
+</section>
+
+<div class="foot">
+Plan de montage AlphaZero · mctx + pgx + JAX · document autonome (animations 100 % locales) · projet <b>test_mctx</b>.
+</div>
+
+</main>
+
+<script>
+/* ═══════ Animation 1 : le cercle vertueux ═══════ */
+let loopI = 0, loopGen = 0, loopOn = true, loopTimer = null;
+const FORCES = ["débutant","novice","amateur","club","expert","maître","grand maître","surhumain"];
+function loopTick(){
+  for(let i=0;i<4;i++) document.getElementById('st'+i).classList.toggle('on', i === loopI % 4);
+  if(loopI % 4 === 3){
+    loopGen++;
+    document.getElementById('genLbl').textContent = 'génération ' + loopGen;
+    const p = Math.min(100, 100 * (1 - Math.exp(-loopGen/8)));
+    document.getElementById('genFill').style.width = Math.max(2, p) + '%';
+    document.getElementById('genForce').textContent =
+      'force : ' + FORCES[Math.min(FORCES.length-1, Math.floor(p/13))];
+  }
+  loopI++;
+}
+function loopToggle(){
+  loopOn = !loopOn;
+  document.getElementById('loopBtn').textContent = loopOn ? '⏸ Pause' : '▶ Reprendre';
+  if(loopOn){ loopTimer = setInterval(loopTick, 900); } else { clearInterval(loopTimer); }
+}
+loopTimer = setInterval(loopTick, 900);
+
+/* ═══════ Animation 2 : l'atelier self-play ═══════
+   Partie scriptée : X gagne la colonne 0-3-6.
+   À chaque coup : plateau, π (heatmap 3x3), ligne dataset avec z='?'.
+   À la fin : back-fill des z (+1 lignes X, −1 lignes O). */
+const GAME = [
+  {mover:'X', cell:4, pi:[.05,.04,.05,.06,.55,.07,.06,.05,.07]},
+  {mover:'O', cell:8, pi:[.12,.06,.10,.07,0,.09,.11,.07,.38]},
+  {mover:'X', cell:0, pi:[.42,.07,.09,.08,0,.08,.16,.10,0]},
+  {mover:'O', cell:2, pi:[0,.11,.36,.12,0,.13,.17,.11,0]},
+  {mover:'X', cell:3, pi:[0,.09,0,.45,0,.08,.29,.09,0]},
+  {mover:'O', cell:5, pi:[0,.22,0,0,0,.34,.24,.20,0]},
+  {mover:'X', cell:6, pi:[0,.03,0,0,0,.02,.92,.03,0]},
+];
+let atT = 0, atBoardArr = Array(9).fill('');
+
+function drawBoard(lastCell){
+  let h = '';
+  for(let i=0;i<9;i++){
+    const v = atBoardArr[i];
+    h += '<div class="' + (v||'') + (i===lastCell?' last':'') + '">' + (v||'') + '</div>';
+  }
+  document.getElementById('atBoard').innerHTML = h;
+}
+function drawPi(pi){
+  let h = '';
+  for(let i=0;i<9;i++){
+    const w = pi ? pi[i] : 0;
+    const bg = 'rgba(227,160,8,' + (w*1.6).toFixed(2) + ')';
+    h += '<div style="background:' + bg + '">' + (w>0.005 ? ('.'+Math.round(w*100)) : '') + '</div>';
+  }
+  document.getElementById('atPi').innerHTML = h;
+}
+function atReset(){
+  atT = 0; atBoardArr = Array(9).fill('');
+  drawBoard(-1); drawPi(null);
+  document.getElementById('atWho').textContent = 'au trait : X';
+  document.getElementById('atRows').innerHTML = '';
+  document.getElementById('atMsg').innerHTML =
+    'Prêt. Le réseau joue contre lui-même ; à chaque coup, le MCTS produit un π. Clique sur « Coup suivant ».';
+}
+function atStep(){
+  if(atT < GAME.length){
+    const f = GAME[atT];
+    drawPi(f.pi);
+    // add dataset row BEFORE playing (obs = position courante)
+    const tb = document.getElementById('atRows');
+    const tr = document.createElement('tr');
+    tr.className = 'new';
+    tr.innerHTML = '<td>' + atT + '</td><td>plateau t=' + atT + '</td><td>' + f.mover +
+      '</td><td>π' + atT + ' (case ' + f.cell + ' : ' + Math.round(f.pi[f.cell]*100) + '%)</td>' +
+      '<td class="zq" data-mover="' + f.mover + '">?</td>';
+    tb.appendChild(tr);
+    // play the move
+    atBoardArr[f.cell] = f.mover;
+    drawBoard(f.cell);
+    atT++;
+    if(atT < GAME.length){
+      document.getElementById('atWho').textContent = 'au trait : ' + GAME[atT].mover;
+      document.getElementById('atMsg').innerHTML =
+        'Coup ' + (atT-1) + ' : <span class="hl">' + f.mover + ' joue la case ' + f.cell +
+        '</span> (échantillonné depuis π). La ligne (obs, π, z=<b>?</b>) est stockée — ' +
+        '<b>on ne connaît pas encore z</b>, la partie n\'est pas finie.';
+    } else {
+      document.getElementById('atWho').textContent = 'partie terminée';
+      document.getElementById('atMsg').innerHTML =
+        '<span class="gd">🏆 X gagne (colonne 0-3-6) !</span> Maintenant — et seulement maintenant — ' +
+        'on peut remplir les z. Clique encore une fois.';
+    }
+  } else {
+    // backfill z
+    const cells = document.querySelectorAll('#atRows td[data-mover]');
+    cells.forEach(td => {
+      if(td.dataset.mover === 'X'){ td.textContent = '+1'; td.className = 'zp'; }
+      else { td.textContent = '−1'; td.className = 'zn'; }
+    });
+    document.getElementById('atMsg').innerHTML =
+      '<span class="gd">z rétro-rempli :</span> toutes les positions où <b>X était au trait</b> → ' +
+      '<span class="gd">z=+1</span>, celles où <b>O était au trait</b> → <span style="color:var(--red);font-weight:700">z=−1</span>. ' +
+      'En code : <span class="hl">z = retours[joueur_au_trait]</span> (pièce 5). ' +
+      'Ces 7 lignes partent à l\'école du chapitre 4.';
+  }
+}
+function atAll(){ const n = GAME.length + 1 - Math.min(atT, GAME.length); for(let i=0;i<=n;i++) atStep(); }
+atReset();
+</script>
+</body>
+</html>

@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>mctx pour AlphaZéristes — Guide V2</title>
+<style>
+  :root{
+    --bg:#0d1117; --bg2:#161b22; --bg3:#1c2330; --border:#30363d;
+    --fg:#e6edf3; --muted:#9da7b3; --accent:#58a6ff; --accent2:#79c0ff;
+    --green:#3fb950; --greenD:#12261a; --orange:#e3a008; --orangeD:#26201a;
+    --red:#f85149; --purple:#bc8cff; --purpleD:#1a1626;
+    --code:#0b0f16;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.7;font-size:16px}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  main{max-width:880px;margin:0 auto;padding:40px 36px 120px}
+  @media(max-width:720px){main{padding:24px 16px}}
+
+  header{text-align:center;margin-bottom:40px;padding:36px 20px;background:linear-gradient(160deg,#161b22,#131a2a);border:1px solid var(--border);border-radius:16px}
+  header h1{font-size:32px;margin:0 0 10px}
+  header .sub{color:var(--muted);font-size:16px;max-width:560px;margin:0 auto}
+
+  /* progress nav */
+  .toc{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:28px 0 44px}
+  .toc a{background:var(--bg2);border:1px solid var(--border);border-radius:20px;padding:6px 14px;font-size:13px;color:var(--muted)}
+  .toc a:hover{color:var(--fg);border-color:var(--accent);text-decoration:none}
+  .toc a b{color:var(--accent2);margin-right:5px}
+
+  section{margin-bottom:64px;scroll-margin-top:20px}
+  h2{font-size:26px;margin-top:0;display:flex;align-items:center;gap:12px}
+  h2 .chap{flex-shrink:0;width:40px;height:40px;border-radius:12px;background:var(--accent);color:#0d1117;font-size:20px;font-weight:800;display:flex;align-items:center;justify-content:center}
+  h3{font-size:19px;color:var(--accent2);margin-top:34px}
+  p{color:#c9d3de}
+  code:not(pre code){background:var(--bg3);padding:2px 6px;border-radius:5px;font-family:"SF Mono",Consolas,Menlo,monospace;font-size:.88em;color:var(--accent2)}
+  ul,ol{color:#c9d3de}
+  li{margin:6px 0}
+
+  .box{border-radius:10px;padding:16px 20px;margin:22px 0;border:1px solid var(--border);background:var(--bg2)}
+  .box .t{font-weight:700;margin-bottom:6px}
+  .box.info{border-left:4px solid var(--accent)}.box.info .t{color:var(--accent)}
+  .box.warn{border-left:4px solid var(--orange)}.box.warn .t{color:var(--orange)}
+  .box.key{border-left:4px solid var(--green);background:var(--greenD)}.box.key .t{color:var(--green)}
+  .box.az{border-left:4px solid var(--purple);background:var(--purpleD)}.box.az .t{color:var(--purple)}
+
+  pre{background:var(--code);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+    font-family:"SF Mono",Consolas,Menlo,monospace;font-size:13.5px;line-height:1.6}
+  pre code{color:#c9d3de}
+  .kw{color:#ff7b72}.str{color:#a5d6ff}.com{color:#8b949e;font-style:italic}.fn{color:#d2a8ff}.num{color:#79c0ff}.ty{color:#ffa657}
+
+  table{border-collapse:collapse;width:100%;margin:18px 0;font-size:14.5px}
+  th,td{border:1px solid var(--border);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:var(--bg3);color:var(--accent2)}
+  tr:nth-child(even){background:var(--bg2)}
+
+  .shape{display:inline-block;background:#1f2d1f;color:var(--green);border:1px solid #2d4a2d;border-radius:5px;padding:1px 8px;font-family:monospace;font-size:13px}
+  .diagram{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:22px;margin:24px 0;text-align:center;overflow-x:auto}
+  .cap{color:var(--muted);font-size:13px;margin-top:12px;font-style:italic;text-align:center}
+
+  /* form-card style for API objects */
+  .card{border:2px solid var(--accent);border-radius:14px;margin:26px 0;overflow:hidden}
+  .card .head{background:var(--accent);color:#0d1117;font-weight:800;padding:8px 18px;font-size:15px;display:flex;justify-content:space-between;align-items:center}
+  .card .head .dir{font-size:12px;font-weight:600;background:#0d1117;color:var(--accent2);padding:2px 10px;border-radius:12px}
+  .card .field{display:flex;gap:14px;padding:12px 18px;border-bottom:1px dashed var(--border);align-items:baseline}
+  .card .field:last-child{border-bottom:none}
+  .card .fname{font-family:monospace;color:var(--fn);min-width:110px;font-size:14px}
+  .card .fshape{min-width:74px}
+  .card .fdesc{color:#c9d3de;font-size:14px;flex:1}
+  .card.green{border-color:var(--green)} .card.green .head{background:var(--green)}
+  .card.orange{border-color:var(--orange)} .card.orange .head{background:var(--orange)}
+
+  /* ============ interactive sim ============ */
+  .sim{border:2px solid var(--orange);border-radius:16px;background:#151005;padding:22px;margin:28px 0}
+  .sim h3{margin-top:0;color:var(--orange)}
+  .sim .controls{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
+  .sim button{background:var(--orange);border:none;color:#0d1117;font-weight:700;font-size:14px;
+    padding:9px 18px;border-radius:8px;cursor:pointer;font-family:inherit}
+  .sim button:hover{filter:brightness(1.15)}
+  .sim button.sec{background:var(--bg3);color:var(--fg);border:1px solid var(--border)}
+  .sim .simcount{font-family:monospace;font-size:15px;color:var(--orange);align-self:center;margin-left:auto}
+  .simgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:16px}
+  @media(max-width:640px){.simgrid{grid-template-columns:repeat(2,1fr)}}
+  .acard{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;transition:all .25s}
+  .acard.sel{border-color:var(--orange);box-shadow:0 0 12px rgba(227,160,8,.35);transform:translateY(-2px)}
+  .acard.best{border-color:var(--green)}
+  .acard .an{font-weight:800;font-size:15px;margin-bottom:4px}
+  .acard .stat{font-family:monospace;font-size:12.5px;color:var(--muted);margin:2px 0}
+  .acard .stat b{color:var(--fg)}
+  .acard .bar{height:10px;background:var(--bg3);border-radius:5px;overflow:hidden;margin:8px 0 4px}
+  .acard .bar > div{height:100%;background:var(--accent);border-radius:5px;transition:width .3s}
+  .acard .bar.vb > div{background:var(--orange)}
+  .simlog{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-top:14px;
+    font-family:monospace;font-size:12.5px;color:#c9d3de;min-height:44px}
+  .simlog .hl{color:var(--orange);font-weight:700}
+  .simlog .gd{color:var(--green)}
+
+  /* recipe steps */
+  .recipe{counter-reset:rs;margin:24px 0}
+  .rstep{display:flex;gap:16px;padding:16px 0;border-bottom:1px dashed var(--border)}
+  .rstep:last-child{border-bottom:none}
+  .rstep::before{counter-increment:rs;content:counter(rs);flex-shrink:0;width:32px;height:32px;border-radius:50%;
+    background:var(--green);color:#0d1117;font-weight:800;display:flex;align-items:center;justify-content:center}
+  .rstep .body{flex:1}
+  .rstep .body b{color:var(--accent2)}
+
+  .foot{color:var(--muted);font-size:13px;text-align:center;margin-top:60px}
+  hr{border:none;border-top:1px solid var(--border);margin:40px 0}
+
+  /* two-col compare */
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:22px 0}
+  @media(max-width:680px){.duo{grid-template-columns:1fr}}
+  .duo .col{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+  .duo .col h4{margin:0 0 10px;font-size:15px}
+  .duo .col.you h4{color:var(--purple)} .duo .col.you{border-color:#5d3a5d}
+  .duo .col.lib h4{color:var(--orange)} .duo .col.lib{border-color:#6b4a08}
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>🌳 mctx pour AlphaZéristes</h1>
+  <div class="sub">Guide V2 — comment brancher <b>ton</b> AlphaZero sur mctx &amp; pgx,
+  expliqué avec ce que tu connais déjà. Zéro prérequis MuZero.</div>
+</header>
+
+<div class="toc">
+  <a href="#c1"><b>1</b> Ton AlphaZero, découpé</a>
+  <a href="#c2"><b>2</b> Le deal avec mctx</a>
+  <a href="#c3"><b>3</b> Les 2 formulaires</a>
+  <a href="#c4"><b>4</b> ⚡ Simulateur interactif</a>
+  <a href="#c5"><b>5</b> main.py relu</a>
+  <a href="#c6"><b>6</b> pgx en 5 min</a>
+  <a href="#c7"><b>7</b> Le branchement</a>
+  <a href="#c8"><b>8</b> La recette finale</a>
+</div>
+
+<!-- ================================================================ -->
+<section id="c1">
+<h2><span class="chap">1</span> Ton AlphaZero, découpé en trois rôles</h2>
+
+<p>
+Partons de ce que tu connais. Dans AlphaZero, à chaque coup, trois « acteurs » collaborent.
+Toute la suite du guide consiste à identifier <b>qui joue chaque rôle</b> quand on utilise mctx + pgx.
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 780 190" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="14">
+  <rect x="20" y="30" width="220" height="130" rx="12" fill="#1a1626" stroke="#bc8cff" stroke-width="2"/>
+  <text x="130" y="60" fill="#bc8cff" text-anchor="middle" font-weight="bold">🧠 L'INTUITION</text>
+  <text x="130" y="88" fill="#c9d3de" text-anchor="middle" font-size="12.5">le réseau f(s) → (p, v)</text>
+  <text x="130" y="108" fill="#9da7b3" text-anchor="middle" font-size="11.5">« ce coup a l'air bon,</text>
+  <text x="130" y="124" fill="#9da7b3" text-anchor="middle" font-size="11.5">cette position vaut +0.3 »</text>
+  <text x="130" y="148" fill="#bc8cff" text-anchor="middle" font-size="11" font-weight="bold">→ TOI (haiku/flax)</text>
+
+  <rect x="280" y="30" width="220" height="130" rx="12" fill="#26201a" stroke="#e3a008" stroke-width="2"/>
+  <text x="390" y="60" fill="#e3a008" text-anchor="middle" font-weight="bold">🔍 LA RÉFLEXION</text>
+  <text x="390" y="88" fill="#c9d3de" text-anchor="middle" font-size="12.5">le MCTS (PUCT + backup)</text>
+  <text x="390" y="108" fill="#9da7b3" text-anchor="middle" font-size="11.5">« vérifions cette intuition</text>
+  <text x="390" y="124" fill="#9da7b3" text-anchor="middle" font-size="11.5">en explorant l'arbre »</text>
+  <text x="390" y="148" fill="#e3a008" text-anchor="middle" font-size="11" font-weight="bold">→ mctx</text>
+
+  <rect x="540" y="30" width="220" height="130" rx="12" fill="#12261a" stroke="#3fb950" stroke-width="2"/>
+  <text x="650" y="60" fill="#3fb950" text-anchor="middle" font-weight="bold">📏 LES RÈGLES</text>
+  <text x="650" y="88" fill="#c9d3de" text-anchor="middle" font-size="12.5">le simulateur du jeu</text>
+  <text x="650" y="108" fill="#9da7b3" text-anchor="middle" font-size="11.5">« si tu joues là, voici la</text>
+  <text x="650" y="124" fill="#9da7b3" text-anchor="middle" font-size="11.5">position suivante, et qui gagne »</text>
+  <text x="650" y="148" fill="#3fb950" text-anchor="middle" font-size="11" font-weight="bold">→ pgx</text>
+</svg>
+<div class="cap">La division du travail. Tu n'écris que l'intuition (le réseau) et la colle entre les trois.</div>
+</div>
+
+<div class="box az">
+  <div class="t">🟣 Ancrage AlphaZero</div>
+  <p style="margin:0">
+  Souviens-toi de la boucle AlphaZero : depuis une position, on lance N simulations MCTS
+  <b>guidées par le réseau</b> (le prior p biaise l'exploration, la value v remplace le rollout),
+  puis on joue ∝ aux visites et on garde π (visites normalisées) comme cible d'entraînement.
+  <b>mctx implémente exactement ce MCTS-là.</b> Rien de plus exotique.
+  </p>
+</div>
+
+<h3>Alors pourquoi mctx parle-t-il de « MuZero » partout ?</h3>
+<p>
+Une seule chose à savoir (et ensuite on n'en parle plus) : MuZero est la généralisation d'AlphaZero
+au cas où <b>on n'a pas les règles</b> — le simulateur y est remplacé par un réseau appris. DeepMind
+a écrit mctx dans ce vocabulaire général. Conséquence purement <b>cosmétique</b> pour toi :
+</p>
+<table>
+<tr><th>mctx dit…</th><th>Toi (AlphaZero), tu lis…</th></tr>
+<tr><td><code>embedding</code></td><td><b>« l'état du jeu »</b>, tout simplement (la position)</td></tr>
+<tr><td><code>recurrent_fn</code></td><td><b>« jouer un coup »</b> : règles + évaluation réseau de la position obtenue</td></tr>
+<tr><td><code>muzero_policy</code></td><td><b>« lancer la recherche MCTS d'AlphaZero »</b></td></tr>
+</table>
+<p>
+Comme on <em>a</em> les règles (pgx), on met le vrai simulateur là où MuZero mettrait son réseau
+de dynamique — et on obtient un AlphaZero exact. C'est tout le mystère.
+</p>
+</section>
+
+<!-- ================================================================ -->
+<section id="c2">
+<h2><span class="chap">2</span> Le deal avec mctx : « donne-moi deux choses »</h2>
+
+<p>
+mctx s'utilise avec <b>un seul appel de fonction</b>. Voici le contrat, vu comme un échange :
+</p>
+
+<div class="duo">
+  <div class="col you">
+    <h4>🟣 CE QUE TU DONNES</h4>
+    <p style="font-size:14px;margin:0 0 10px"><b>① Le point de départ</b> — ce que ton réseau
+    pense de la position actuelle (un <code>RootFnOutput</code>) :</p>
+    <ul style="font-size:13.5px;margin:0 0 14px">
+      <li>ses probas de coups (prior)</li>
+      <li>son estimation de la valeur</li>
+      <li>la position elle-même</li>
+    </ul>
+    <p style="font-size:14px;margin:0 0 10px"><b>② Comment jouer un coup</b> — une fonction
+    (<code>recurrent_fn</code>) qui, donnée une position et un coup :</p>
+    <ul style="font-size:13.5px;margin:0">
+      <li>applique les règles → nouvelle position</li>
+      <li>fait évaluer cette position par le réseau</li>
+    </ul>
+  </div>
+  <div class="col lib">
+    <h4>🟠 CE QUE MCTX REND</h4>
+    <p style="font-size:14px;margin:0 0 10px">Après <code>num_simulations</code> tours de
+    sélection-expansion-backup (un <code>PolicyOutput</code>) :</p>
+    <ul style="font-size:13.5px;margin:0">
+      <li><b><code>action</code></b> — le coup à jouer</li>
+      <li><b><code>action_weights</code></b> — le π amélioré (visites normalisées),
+          ta <b>cible d'entraînement</b></li>
+      <li><b><code>search_tree</code></b> — l'arbre, si tu veux fouiller</li>
+    </ul>
+    <p style="font-size:13px;color:var(--muted);margin-top:12px">
+    Toute la mécanique interne (PUCT, expansion, backup, compteurs de visites) est
+    <b>gérée pour toi</b>. Tu ne la codes jamais.</p>
+  </div>
+</div>
+
+<pre><code><span class="com"># L'INTÉGRALITÉ de l'API dont tu as besoin :</span>
+policy_output = <span class="ty">mctx</span>.<span class="fn">muzero_policy</span>(
+    params        = poids_du_réseau,   <span class="com"># passés tels quels à ta fonction ②</span>
+    rng_key       = clé_jax,
+    root          = ①,                 <span class="com"># le point de départ</span>
+    recurrent_fn  = ②,                 <span class="com"># comment jouer un coup</span>
+    num_simulations = <span class="num">32</span>,              <span class="com"># le budget de réflexion</span>
+)</code></pre>
+
+<div class="box key">
+  <div class="t">✅ Le déclic n°1</div>
+  <p style="margin:0">
+  Tu ne construis <b>jamais</b> l'arbre. Tu ne codes <b>jamais</b> PUCT ni le backup. Tu réponds
+  juste, quand mctx te le demande, à la question : <b>« et si on joue le coup <code>a</code>
+  depuis cette position, ça donne quoi ? »</b>. mctx pose cette question 32 fois (aux positions
+  qu'<em>il</em> choisit), et en déduit tout le reste.
+  </p>
+</div>
+</section>
+
+<!-- ================================================================ -->
+<section id="c3">
+<h2><span class="chap">3</span> Les deux « formulaires » à remplir</h2>
+
+<p>
+Concrètement, « donner ① et ② » = remplir deux formulaires à champs imposés. Les voici,
+présentés comme tels. (Rappel : <span class="shape">B</span> = nombre de parties en parallèle,
+<span class="shape">A</span> = nombre de coups possibles — cf. la page
+<a href="comprendre_le_batch.html">« Comprendre le batch »</a>. Pour lire tranquillement :
+fais comme si B=1.)
+</p>
+
+<h3>Formulaire ① — le point de départ</h3>
+<div class="card">
+  <div class="head">mctx.RootFnOutput <span class="dir">TOI → MCTX, une fois par coup joué</span></div>
+  <div class="field"><span class="fname">prior_logits</span><span class="fshape"><span class="shape">[B, A]</span></span>
+    <span class="fdesc">Les logits de <b>ton réseau</b> sur la position actuelle. En AlphaZero : le p de f(s)=(p,v).</span></div>
+  <div class="field"><span class="fname">value</span><span class="fshape"><span class="shape">[B]</span></span>
+    <span class="fdesc">Le v de ton réseau sur la position actuelle.</span></div>
+  <div class="field"><span class="fname">embedding</span><span class="fshape"><span class="shape">[B, …]</span></span>
+    <span class="fdesc"><b>La position elle-même</b> (avec pgx : le <code>State</code> entier). mctx ne l'ouvre jamais —
+    il te le redonnera tel quel quand il voudra jouer un coup depuis cette position.</span></div>
+</div>
+
+<h3>Formulaire ② — la réponse à « et si on joue <code>a</code> ? »</h3>
+<p>Ta fonction <code>recurrent_fn</code> reçoit <b>(une position, un coup)</b> et doit rendre ce formulaire
+<b>+ la nouvelle position</b> :</p>
+<div class="card green">
+  <div class="head">mctx.RecurrentFnOutput <span class="dir">TOI → MCTX, à chaque simulation</span></div>
+  <div class="field"><span class="fname">reward</span><span class="fshape"><span class="shape">[B]</span></span>
+    <span class="fdesc">Ce que le coup a rapporté <b>immédiatement</b>. Jeu de plateau : 0 partout, sauf ±1 si ce coup termine la partie.</span></div>
+  <div class="field"><span class="fname">discount</span><span class="fshape"><span class="shape">[B]</span></span>
+    <span class="fdesc">Le facteur qui relie la valeur du fils à celle du parent. <b>Trois valeurs à connaître :</b>
+    <code>0</code> = partie finie · <code>+1</code> = jeu solo qui continue · <code>−1</code> = jeu à 2 joueurs
+    (le point de vue s'inverse : c'est le minimax !).</span></div>
+  <div class="field"><span class="fname">prior_logits</span><span class="fshape"><span class="shape">[B, A]</span></span>
+    <span class="fdesc">Le p de ton réseau… sur la <b>nouvelle</b> position.</span></div>
+  <div class="field"><span class="fname">value</span><span class="fshape"><span class="shape">[B]</span></span>
+    <span class="fdesc">Le v de ton réseau… sur la <b>nouvelle</b> position. <b>C'est lui qui remplace le rollout</b> du MCTS classique.</span></div>
+</div>
+
+<div class="diagram">
+<svg viewBox="0 0 780 250" xmlns="http://www.w3.org/2000/svg" font-family="monospace" font-size="12.5">
+  <defs><marker id="m2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#8b949e"/></marker></defs>
+
+  <!-- mctx block -->
+  <rect x="20" y="60" width="200" height="130" rx="12" fill="#26201a" stroke="#e3a008" stroke-width="2"/>
+  <text x="120" y="90" fill="#e3a008" text-anchor="middle" font-weight="bold" font-size="14">mctx (l'arbre)</text>
+  <text x="120" y="115" fill="#9da7b3" text-anchor="middle" font-size="11">« je veux explorer le coup a</text>
+  <text x="120" y="131" fill="#9da7b3" text-anchor="middle" font-size="11">depuis cette position-là »</text>
+  <text x="120" y="165" fill="#e3a008" text-anchor="middle" font-size="11">PUCT · expansion · backup</text>
+
+  <!-- your fn -->
+  <rect x="470" y="60" width="290" height="130" rx="12" fill="#1a1626" stroke="#bc8cff" stroke-width="2"/>
+  <text x="615" y="88" fill="#bc8cff" text-anchor="middle" font-weight="bold" font-size="14">ta recurrent_fn</text>
+  <text x="615" y="115" fill="#c9d3de" text-anchor="middle" font-size="11.5">1. pgx : nouvelle position = step(pos, a)</text>
+  <text x="615" y="135" fill="#c9d3de" text-anchor="middle" font-size="11.5">2. réseau : (p, v) = f(nouvelle position)</text>
+  <text x="615" y="155" fill="#c9d3de" text-anchor="middle" font-size="11.5">3. remplir le formulaire ②</text>
+
+  <!-- arrows -->
+  <path d="M220 95 L468 95" stroke="#e3a008" stroke-width="1.5" marker-end="url(#m2)"/>
+  <text x="345" y="85" fill="#e3a008" text-anchor="middle" font-size="11.5">(position, coup a)</text>
+  <path d="M468 155 L220 155" stroke="#3fb950" stroke-width="1.5" marker-end="url(#m2)"/>
+  <text x="345" y="147" fill="#3fb950" text-anchor="middle" font-size="11.5">formulaire ② + nouvelle position</text>
+
+  <text x="390" y="225" fill="#9da7b3" text-anchor="middle" font-size="12">… répété num_simulations fois, sur les positions que mctx choisit …</text>
+</svg>
+<div class="cap">Le dialogue complet entre mctx et toi. C'est un ping-pong : il choisit où creuser, tu réponds « voilà ce que ça donne ».</div>
+</div>
+
+<div class="box info">
+  <div class="t">ℹ️ D'où sort Q(s,a) ? (le seul calcul à retenir)</div>
+  <p style="margin:0">
+  À partir de ton formulaire, mctx calcule la valeur du coup par
+  <code style="font-size:15px">Q(s,a) = reward + discount × value(s')</code>,
+  puis la remonte le long du chemin (backup). Vérifie que ça colle avec ton AlphaZero mental :
+  en cours de partie (reward=0, discount=−1) → <code>Q = −v(s')</code>, la bonne position de
+  l'adversaire est mauvaise pour moi. Coup gagnant (reward=+1, discount=0) → <code>Q = 1</code>. ✓
+  </p>
+</div>
+</section>
+
+<!-- ================================================================ -->
+<section id="c4">
+<h2><span class="chap">4</span> ⚡ La mécanique, en vrai : simulateur interactif</h2>
+
+<p>
+Voici <b>le problème exact de <code>main.py</code></b> : un bandit à 4 actions. La vérité :
+seule l'<b>action 3</b> rapporte 1.0. Le réseau, lui, croit à l'action 0 (prior 71%).
+Clique sur <b>« +1 simulation »</b> et regarde le MCTS corriger le prior sous tes yeux :
+à chaque clic, il calcule les scores PUCT, choisit le max (carte orange), découvre la
+récompense, et met à jour visites et Q.
+</p>
+
+<div class="sim">
+<h3>🎰 Bandit de main.py — MCTS pas à pas</h3>
+<div class="controls">
+  <button onclick="simStep()">▶ +1 simulation</button>
+  <button onclick="simMany(8)">⏩ +8 simulations</button>
+  <button class="sec" onclick="simReset()">↺ Réinitialiser</button>
+  <span class="simcount" id="simN">simulation 0 / 32</span>
+</div>
+<div class="simgrid" id="simGrid"></div>
+<div class="simlog" id="simLog">Prêt. Le réseau croit à l'action 0 (prior 0.71). Clique sur « +1 simulation ».</div>
+</div>
+
+<div class="box key">
+  <div class="t">✅ Ce que tu viens de voir (après ~10 clics)</div>
+  <ul style="margin:6px 0 0">
+    <li><b>Débuts :</b> PUCT suit le prior → l'action 0 est visitée en premier. Le réseau impose son intuition.</li>
+    <li><b>Déception :</b> Q(0) reste à 0. Le terme d'exploration <code>prior·√N/(1+N(a))</code>
+        des autres actions grossit → on finit par essayer l'action 3.</li>
+    <li><b>Jackpot :</b> Q(3)=1.0. Désormais PUCT(3) domine → <b>quasi toutes les visites
+        suivantes vont sur l'action 3</b>, malgré son prior de 0.096.</li>
+    <li><b>Bilan :</b> la barre orange (visites) finit massivement sur l'action 3. Normalisée,
+        c'est <code>action_weights</code> ≈ [0.09, 0, 0, 0.91] — le π corrigé qui servirait à
+        ré-entraîner le réseau.</li>
+  </ul>
+</div>
+
+<div class="box az">
+  <div class="t">🟣 Ancrage AlphaZero</div>
+  <p style="margin:0">C'est <b>l'amélioration de politique</b> (policy improvement) d'AlphaZero, réduite
+  à sa plus simple expression : recherche ⇒ π meilleur que p ⇒ entraîner p vers π ⇒ répéter.
+  La seule différence avec le vrai jeu : ici l'arbre a une profondeur de 1 et la « value réseau »
+  est remplacée par la récompense exacte.</p>
+</div>
+
+<details style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:0 18px;margin:16px 0">
+<summary style="cursor:pointer;padding:14px 0;font-weight:600;color:var(--accent2)">📐 La formule PUCT utilisée par le simulateur</summary>
+<p style="margin-top:0">
+<code>PUCT(a) = Q(a) + c · prior(a) · √(N_total) / (1 + N(a))</code> avec c = 1.25 (le
+<code>pb_c_init</code> de mctx). Lecture : <b>Q(a)</b> = exploitation (« ce coup a bien marché »),
+le second terme = exploration (« ce coup est cru bon par le réseau et/ou peu essayé »).
+Le simulateur affiche ce score sous chaque action — tu peux vérifier que le choix orange est
+toujours le max. mctx ajoute par-dessus un peu de bruit de Dirichlet à la racine et une
+normalisation des Q (qtransform), omis ici pour la clarté.
+</p>
+</details>
+</section>
+
+<!-- ================================================================ -->
+<section id="c5">
+<h2><span class="chap">5</span> main.py, relu en 30 secondes</h2>
+
+<p>Maintenant que tu as vu tourner la mécanique, <code>main.py</code> se lit d'un trait —
+c'est le simulateur ci-dessus, écrit en JAX :</p>
+
+<pre><code><span class="com"># ① LE POINT DE DÉPART — le "réseau" et son biais erroné</span>
+root = <span class="ty">mctx</span>.<span class="fn">RootFnOutput</span>(
+    prior_logits=<span class="ty">jnp</span>.<span class="fn">array</span>([[<span class="num">2.0</span>, <span class="num">0.0</span>, <span class="num">0.0</span>, <span class="num">0.0</span>]]),  <span class="com"># prior 71% sur l'action 0 (faux !)</span>
+    value=<span class="ty">jnp</span>.<span class="fn">array</span>([<span class="num">0.25</span>]),
+    embedding=<span class="ty">jnp</span>.<span class="fn">zeros</span>([<span class="num">1</span>]),   <span class="com"># la "position" : ici un simple compteur (0 = racine)</span>
+)
+
+<span class="com"># ② JOUER UN COUP — les vraies règles du bandit</span>
+<span class="kw">def</span> <span class="fn">recurrent_fn</span>(params, rng_key, action, embedding):
+    reward   = <span class="ty">jnp</span>.<span class="fn">where</span>((embedding == <span class="num">0</span>) &amp; (action == <span class="num">3</span>), <span class="num">1.0</span>, <span class="num">0.0</span>)  <span class="com"># le trésor</span>
+    discount = <span class="ty">jnp</span>.<span class="fn">zeros_like</span>(reward)      <span class="com"># 0 : la partie s'arrête après 1 coup</span>
+    <span class="kw">return</span> <span class="ty">mctx</span>.<span class="fn">RecurrentFnOutput</span>(reward, discount, <span class="fn">zeros</span>(...), <span class="fn">zeros</span>(...)), embedding + <span class="num">1</span>
+
+<span class="com"># L'APPEL — 32 tours du simulateur interactif</span>
+out = <span class="ty">mctx</span>.<span class="fn">muzero_policy</span>(params=(), rng_key=key, root=root,
+                         recurrent_fn=recurrent_fn, num_simulations=<span class="num">32</span>)
+
+<span class="com"># out.action_weights ≈ [0.09, 0.00, 0.00, 0.91]  ← le prior corrigé ✓</span></code></pre>
+
+<table>
+<tr><th>Dans le simulateur interactif…</th><th>Dans main.py c'est…</th></tr>
+<tr><td>les 4 cartes / le prior 0.71</td><td><code>prior_logits=[[2,0,0,0]]</code></td></tr>
+<tr><td>« découvre reward = 1.0 »</td><td>le <code>jnp.where(...)</code> de <code>recurrent_fn</code></td></tr>
+<tr><td>« la partie s'arrête » (pas de descente plus bas)</td><td><code>discount = 0</code></td></tr>
+<tr><td>tes clics « +1 simulation »</td><td><code>num_simulations=32</code></td></tr>
+<tr><td>la barre orange finale</td><td><code>out.action_weights</code></td></tr>
+</table>
+
+<div class="box warn">
+  <div class="t">⚠️ Deux réflexes JAX visibles dans ce code</div>
+  <ul style="margin:6px 0 0">
+    <li><b><code>jnp.where</code> au lieu de <code>if</code></b> : les valeurs sont des tenseurs tracés,
+        un <code>if</code> Python casserait la compilation.</li>
+    <li><b>Doubles crochets <code>[[2,0,0,0]]</code></b> : l'axe batch <span class="shape">[B=1, A=4]</span>
+        existe toujours, même pour une seule partie.</li>
+  </ul>
+</div>
+</section>
+
+<!-- ================================================================ -->
+<section id="c6">
+<h2><span class="chap">6</span> pgx en 5 minutes : les règles, en fonctions pures</h2>
+
+<p>
+pgx te donne le troisième acteur : <b>les règles</b>, écrites en JAX (donc GPU-compatibles).
+Son API tient en trois lignes :
+</p>
+
+<pre><code>env   = <span class="ty">pgx</span>.<span class="fn">make</span>(<span class="str">"tic_tac_toe"</span>)   <span class="com"># ou "connect_four", "go_9x9", "chess", ...</span>
+state = env.<span class="fn">init</span>(key)              <span class="com"># nouvelle partie → un State</span>
+state = env.<span class="fn">step</span>(state, action)    <span class="com"># jouer un coup   → le State suivant</span></code></pre>
+
+<p>
+Le point crucial : <code>env.step</code> ne modifie rien, elle <b>rend un nouvel état</b>
+(fonctionnel pur, comme tout JAX). Et le <code>State</code> transporte tout ce dont on aura
+besoin pour MCTS :
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" font-family="monospace" font-size="12.5">
+  <rect x="180" y="15" width="360" height="230" rx="14" fill="#12261a" stroke="#3fb950" stroke-width="2"/>
+  <text x="360" y="45" fill="#3fb950" text-anchor="middle" font-weight="bold" font-size="15">pgx.State  (une position)</text>
+
+  <rect x="205" y="65" width="310" height="30" rx="6" fill="#0d1117" stroke="#30363d"/>
+  <text x="218" y="85" fill="#d2a8ff">observation</text>
+  <text x="505" y="85" fill="#9da7b3" text-anchor="end" font-size="11">→ l'entrée de ton réseau</text>
+
+  <rect x="205" y="102" width="310" height="30" rx="6" fill="#0d1117" stroke="#e3a008"/>
+  <text x="218" y="122" fill="#d2a8ff">legal_action_mask</text>
+  <text x="505" y="122" fill="#e3a008" text-anchor="end" font-size="11">→ coups permis (pour mctx !)</text>
+
+  <rect x="205" y="139" width="310" height="30" rx="6" fill="#0d1117" stroke="#30363d"/>
+  <text x="218" y="159" fill="#d2a8ff">rewards</text>
+  <text x="505" y="159" fill="#9da7b3" text-anchor="end" font-size="11">→ gain de chaque joueur</text>
+
+  <rect x="205" y="176" width="310" height="30" rx="6" fill="#0d1117" stroke="#30363d"/>
+  <text x="218" y="196" fill="#d2a8ff">terminated</text>
+  <text x="505" y="196" fill="#9da7b3" text-anchor="end" font-size="11">→ partie finie ? (pour discount=0)</text>
+
+  <rect x="205" y="213" width="310" height="24" rx="6" fill="#0d1117" stroke="#30363d"/>
+  <text x="218" y="230" fill="#d2a8ff">current_player</text>
+  <text x="505" y="230" fill="#9da7b3" text-anchor="end" font-size="11">→ à qui de jouer</text>
+</svg>
+<div class="cap">Les 5 champs d'un State pgx que le branchement mctx utilise. Chacun a un destinataire précis.</div>
+</div>
+
+<div class="box warn">
+  <div class="t">⚠️ Les 3 conventions pgx qui piègent</div>
+  <ul style="margin:6px 0 0">
+    <li><b>Pas de batch intégré</b> : un <code>State</code> = une partie. Pour B parties :
+        <code>jax.vmap(env.step)(states, actions)</code> — c'est <code>vmap</code> qui crée l'axe B.</li>
+    <li><b>Coup illégal = défaite immédiate</b> : pgx ne lève pas d'erreur, il termine la partie
+        avec pénalité. D'où l'importance de transmettre <code>legal_action_mask</code> à mctx.</li>
+    <li><b><code>rewards</code> est un vecteur par joueur</b> : le gain du joueur qui vient de jouer
+        est <code>rewards[current_player]</code> (lu <em>avant</em> le step, car le trait change de main).</li>
+  </ul>
+</div>
+</section>
+
+<!-- ================================================================ -->
+<section id="c7">
+<h2><span class="chap">7</span> Le branchement : chaque fil, un par un</h2>
+
+<p>
+On y est. Voici le schéma de câblage complet entre les trois acteurs, puis le code qui le réalise.
+<b>Chaque flèche du schéma est une ligne du code.</b>
+</p>
+
+<div class="diagram">
+<svg viewBox="0 0 780 330" xmlns="http://www.w3.org/2000/svg" font-family="monospace" font-size="12">
+  <defs><marker id="m7" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#8b949e"/></marker></defs>
+
+  <!-- pgx State -->
+  <rect x="20" y="110" width="170" height="110" rx="12" fill="#12261a" stroke="#3fb950" stroke-width="2"/>
+  <text x="105" y="138" fill="#3fb950" text-anchor="middle" font-weight="bold">pgx.State</text>
+  <text x="105" y="160" fill="#9da7b3" text-anchor="middle" font-size="10.5">observation</text>
+  <text x="105" y="178" fill="#9da7b3" text-anchor="middle" font-size="10.5">legal_action_mask</text>
+  <text x="105" y="196" fill="#9da7b3" text-anchor="middle" font-size="10.5">l'état complet</text>
+
+  <!-- network -->
+  <rect x="300" y="20" width="180" height="70" rx="12" fill="#1a1626" stroke="#bc8cff" stroke-width="2"/>
+  <text x="390" y="48" fill="#bc8cff" text-anchor="middle" font-weight="bold">réseau f</text>
+  <text x="390" y="70" fill="#9da7b3" text-anchor="middle" font-size="10.5">obs → (logits, value)</text>
+
+  <!-- root -->
+  <rect x="300" y="130" width="180" height="80" rx="12" fill="#1f2d3d" stroke="#58a6ff" stroke-width="2"/>
+  <text x="390" y="156" fill="#79c0ff" text-anchor="middle" font-weight="bold">RootFnOutput</text>
+  <text x="390" y="176" fill="#9da7b3" text-anchor="middle" font-size="10.5">prior_logits · value</text>
+  <text x="390" y="192" fill="#9da7b3" text-anchor="middle" font-size="10.5">embedding = State ⭐</text>
+
+  <!-- mctx -->
+  <rect x="580" y="110" width="180" height="110" rx="12" fill="#26201a" stroke="#e3a008" stroke-width="2"/>
+  <text x="670" y="140" fill="#e3a008" text-anchor="middle" font-weight="bold">muzero_policy</text>
+  <text x="670" y="162" fill="#9da7b3" text-anchor="middle" font-size="10.5">32 simulations</text>
+  <text x="670" y="184" fill="#9da7b3" text-anchor="middle" font-size="10.5">→ action</text>
+  <text x="670" y="200" fill="#9da7b3" text-anchor="middle" font-size="10.5">→ action_weights (π)</text>
+
+  <!-- recurrent_fn at bottom -->
+  <rect x="230" y="255" width="320" height="60" rx="12" fill="#26201a" stroke="#e3a008" stroke-dasharray="5" stroke-width="1.5"/>
+  <text x="390" y="280" fill="#e3a008" text-anchor="middle" font-weight="bold" font-size="12">recurrent_fn (appelée par mctx ×32)</text>
+  <text x="390" y="300" fill="#9da7b3" text-anchor="middle" font-size="10.5">vmap(env.step) puis réseau f puis formulaire ②</text>
+
+  <!-- wires -->
+  <path d="M150 110 C 200 60, 240 55, 298 55" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#m7)"/>
+  <text x="200" y="52" fill="#bc8cff" font-size="10.5">obs</text>
+
+  <path d="M390 90 L390 128" stroke="#79c0ff" stroke-width="1.5" marker-end="url(#m7)"/>
+  <text x="400" y="115" fill="#79c0ff" font-size="10.5">(p, v)</text>
+
+  <path d="M190 170 L298 170" stroke="#3fb950" stroke-width="1.5" marker-end="url(#m7)"/>
+  <text x="243" y="162" fill="#3fb950" font-size="10.5">state ⭐</text>
+
+  <path d="M480 170 L578 170" stroke="#79c0ff" stroke-width="1.5" marker-end="url(#m7)"/>
+  <text x="528" y="162" fill="#79c0ff" font-size="10.5">root</text>
+
+  <path d="M105 220 C 105 300, 180 285, 228 285" fill="none" stroke="#e3a008" stroke-width="1.5" marker-end="url(#m7)"/>
+  <text x="130" y="268" fill="#e3a008" font-size="10.5">legal_action_mask → invalid_actions</text>
+
+  <path d="M580 220 C 580 275, 560 283, 552 285" fill="none" stroke="#e3a008" stroke-width="1.5" marker-end="url(#m7)"/>
+  <text x="640" y="252" fill="#e3a008" font-size="10.5">(position, coup) ↺</text>
+</svg>
+<div class="cap">Le câblage AlphaZero complet. L'étoile ⭐ : le State pgx voyage tel quel dans le champ embedding — c'est LE point de contact.</div>
+</div>
+
+<h3>Le code correspondant, fil par fil</h3>
+<p>Extrait (simplifié) de l'exemple officiel <code>~/dev/libs/pgx/examples/alphazero/train.py</code> :</p>
+
+<pre><code><span class="com"># ── FIL 1 : State → réseau → RootFnOutput ─────────────────────────</span>
+logits, value = réseau(state.observation)
+root = <span class="ty">mctx</span>.<span class="fn">RootFnOutput</span>(prior_logits=logits, value=value,
+                         embedding=state)          <span class="com"># ⭐ le State entier</span>
+
+<span class="com">─ FIL 2 : recurrent_fn = pgx + réseau, dans cet ordre ──────────</span>
+<span class="kw">def</span> <span class="fn">recurrent_fn</span>(params, rng_key, action, state):   <span class="com"># state ⭐ revient ici</span>
+    joueur = state.current_player                    <span class="com"># qui joue ce coup (avant step !)</span>
+
+    state = <span class="ty">jax</span>.<span class="fn">vmap</span>(env.step)(state, action)        <span class="com"># 📏 LES RÈGLES jouent le coup</span>
+    logits, value = réseau(state.observation)        <span class="com"># 🧠 L'INTUITION évalue la suite</span>
+
+    <span class="com"># remplir le formulaire ② :</span>
+    reward   = state.rewards[<span class="fn">arange</span>(B), joueur]      <span class="com"># gain du joueur qui a joué</span>
+    discount = <span class="ty">jnp</span>.<span class="fn">where</span>(state.terminated, <span class="num">0.0</span>, -<span class="num">1.0</span>) <span class="com"># fini ? sinon −1 (minimax)</span>
+    value    = <span class="ty">jnp</span>.<span class="fn">where</span>(state.terminated, <span class="num">0.0</span>, value) <span class="com"># pas de valeur après la fin</span>
+    logits   = <span class="ty">jnp</span>.<span class="fn">where</span>(state.legal_action_mask, logits, -<span class="num">1e9</span>) <span class="com"># masquer l'illégal</span>
+
+    <span class="kw">return</span> <span class="ty">mctx</span>.<span class="fn">RecurrentFnOutput</span>(reward, discount, logits, value), state
+
+<span class="com"># ── FIL 3 : l'appel, avec les coups légaux ────────────────────────</span>
+out = <span class="ty">mctx</span>.<span class="fn">gumbel_muzero_policy</span>(          <span class="com"># variante moderne, mieux à petit budget</span>
+    params=poids, rng_key=key, root=root, recurrent_fn=recurrent_fn,
+    num_simulations=<span class="num">32</span>,
+    invalid_actions=~state.legal_action_mask,   <span class="com"># pgx dit à mctx où ne pas chercher</span>
+)
+
+<span class="com"># ── FIL 4 : on joue pour de vrai, et on garde les cibles ──────────</span>
+state = <span class="ty">jax</span>.<span class="fn">vmap</span>(env.step)(state, out.action)
+<span class="com"># dataset ← (observation, out.action_weights, résultat final)  → entraînement</span></code></pre>
+
+<div class="box key">
+  <div class="t">✅ Le déclic n°2 (le plus important du guide)</div>
+  <p style="margin:0">
+  Compare le <code>recurrent_fn</code> ci-dessus avec celui de <code>main.py</code> : <b>même squelette
+  exactement</b>. On a juste remplacé « récompense codée en dur » par <code>env.step</code> + réseau,
+  et <code>discount=0</code> par la logique fini/−1. <b>Écrire un AlphaZero avec mctx = écrire ces
+  ~15 lignes.</b> Tout le reste (self-play massif, entraînement optax) est de la plomberie standard
+  autour.
+  </p>
+</div>
+
+<details style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:0 18px;margin:16px 0">
+<summary style="cursor:pointer;padding:14px 0;font-weight:600;color:var(--accent2)">🤔 Pourquoi <code>discount = −1</code> et pas une value « du point de vue de qui » ?</summary>
+<p style="margin-top:0">
+Convention mctx : chaque nœud évalue la position <b>du point de vue du joueur au trait</b> à ce
+nœud. Quand on descend d'un coup, le trait change de main, donc « bon pour lui » = « mauvais pour
+moi » : la value du fils entre dans le Q du parent avec un signe moins. C'est le
+<code>discount=−1</code>. Le backup <code>Q = reward − value(s')</code> réalise alors exactement le
+minimax que tu connais — sans jamais écrire de <code>max</code>/<code>min</code> explicites.
+</p>
+</details>
+</section>
+
+<!-- ================================================================ -->
+<section id="c8">
+<h2><span class="chap">8</span> La recette finale : ton AlphaZero en 5 étapes</h2>
+
+<p>La checklist à suivre pour n'importe quel jeu pgx, dans l'ordre où je te conseille de coder :</p>
+
+<div class="recipe">
+  <div class="rstep"><div class="body">
+    <b>Choisir le jeu et valider la plomberie sans réseau.</b>
+    <code>env = pgx.make("tic_tac_toe")</code>, un « réseau » bidon (logits uniformes, value 0),
+    le <code>recurrent_fn</code> du chapitre 7. Si <code>muzero_policy</code> tourne et que les
+    <code>action_weights</code> évitent les coups perdants → le câblage est bon. <em>(≈50 lignes)</em>
+  </div></div>
+  <div class="rstep"><div class="body">
+    <b>Brancher un vrai réseau.</b> Un petit MLP ou CNN flax/haiku : <code>observation → (logits, value)</code>.
+    Ne change <em>rien d'autre</em> : c'est la beauté de l'interface.
+  </div></div>
+  <div class="rstep"><div class="body">
+    <b>Le self-play batché.</b> <code>jax.vmap(env.init)</code> sur B clés, une boucle
+    <code>jax.lax.scan</code> de coups avec <code>auto_reset</code>, et on stocke
+    <code>(observation, action_weights, récompense finale)</code> à chaque pas.
+  </div></div>
+  <div class="rstep"><div class="body">
+    <b>L'entraînement.</b> Les deux pertes canoniques d'AlphaZero :
+    cross-entropy(π=<code>action_weights</code>, logits) + L2(z, value), avec optax.
+  </div></div>
+  <div class="rstep"><div class="body">
+    <b>Boucler et évaluer.</b> self-play → train → self-play… Évaluation : matchs contre une
+    version antérieure ou la baseline pgx (<code>pgx.make_baseline_model</code>).
+  </div></div>
+</div>
+
+<div class="box info">
+  <div class="t">📂 Pour aller plus loin (sources locales)</div>
+  <ul style="margin:6px 0 0">
+    <li><code>~/dev/libs/pgx/examples/alphazero/train.py</code> — la référence complète (celle du chapitre 7).</li>
+    <li><code>~/dev/libs/pgx/colab/mcts_connect_four.ipynb</code> — pgx + mctx pas à pas en notebook.</li>
+    <li><code>~/dev/libs/mctx/examples/visualization_demo.py</code> — dessiner l'arbre de recherche.</li>
+    <li>Guide V1 (<a href="mctx_pgx_guide.html">mctx_pgx_guide.html</a>) — la version « référence API » plus dense, à relire après celui-ci.</li>
+    <li><a href="comprendre_le_batch.html">comprendre_le_batch.html</a> — si les formes [B, A] re-titillent.</li>
+  </ul>
+</div>
+
+<div class="box key">
+  <div class="t">✅ Résumé du résumé</div>
+  <p style="margin:0">
+  mctx = le MCTS d'AlphaZero, déjà écrit, jit/vmap-compatible. Tu remplis <b>deux formulaires</b> :
+  la racine (ce que ton réseau pense de la position) et <code>recurrent_fn</code> (règles pgx + réseau
+  sur la position suivante). Il te rend <b>l'action et le π amélioré</b>. Le champ
+  <code>embedding</code> transporte ton <code>pgx.State</code> tel quel — c'est le seul point de
+  contact entre les deux mondes, et il tient en un signe <code>=</code>.
+  </p>
+</div>
+</section>
+
+<div class="foot">
+Guide V2 · mctx &amp; pgx vus depuis AlphaZero · document autonome (le simulateur tourne en JavaScript local, sans réseau).
+</div>
+
+</main>
+
+<script>
+/* ═══════ Simulateur MCTS : bandit de main.py ═══════
+   4 actions, prior softmax([2,0,0,0]), reward = [0,0,0,1], arbre de profondeur 1.
+   PUCT simplifié : score = Q(a) + c * prior(a) * sqrt(Ntot) / (1 + N(a))   */
+const PRIOR = (() => {
+  const l = [2,0,0,0], m = Math.max(...l);
+  const e = l.map(x => Math.exp(x - m)), s = e.reduce((a,b)=>a+b,0);
+  return e.map(x => x/s);
+})();
+const REWARD = [0,0,0,1];
+const C = 1.25, MAXSIM = 32;
+let N, Q, visited, nsim;
+
+function simReset(){
+  N = [0,0,0,0]; Q = [0,0,0,0]; visited = [false,false,false,false]; nsim = 0;
+  document.getElementById('simLog').innerHTML =
+    'Prêt. Le réseau croit à l\'action 0 (prior 0.71). Clique sur « +1 simulation ».';
+  render(-1);
+}
+
+function puct(a){
+  const ntot = N.reduce((x,y)=>x+y,0);
+  return Q[a] + C * PRIOR[a] * Math.sqrt(Math.max(ntot,1)) / (1 + N[a]);
+}
+
+function simStep(){
+  if(nsim >= MAXSIM){
+    document.getElementById('simLog').innerHTML =
+      'Budget de 32 simulations épuisé — comme <span class="hl">num_simulations=32</span> dans main.py. ' +
+      'action_weights ≈ [' + N.map(n=>(n/MAXSIM).toFixed(2)).join(', ') + ']. ↺ pour recommencer.';
+    return;
+  }
+  const scores = [0,1,2,3].map(puct);
+  let a = 0;
+  for(let i=1;i<4;i++) if(scores[i] > scores[a] + 1e-12) a = i;
+  const first = !visited[a];
+  N[a] += 1; Q[a] = REWARD[a]; visited[a] = true; nsim += 1;
+
+  let msg = 'Sim ' + nsim + ' : PUCT max → <span class="hl">action ' + a + '</span> ' +
+            '(score ' + scores[a].toFixed(2) + ').';
+  if(first){
+    msg += ' Expansion : recurrent_fn révèle <b>reward = ' + REWARD[a].toFixed(1) + '</b>.';
+    if(REWARD[a] > 0) msg += ' <span class="gd">💰 Jackpot ! Q(3)=1.0 : PUCT(3) va dominer.</span>';
+    else msg += ' Q(' + a + ')=0 : déception, l\'exploration des autres va monter.';
+  } else {
+    msg += ' Déjà exploré : backup, N(' + a + ') → ' + N[a] + '.';
+  }
+  document.getElementById('simLog').innerHTML = msg;
+  render(a);
+}
+
+function simMany(k){ for(let i=0;i<k;i++){ if(nsim>=MAXSIM) break; simStep(); } }
+
+function render(sel){
+  document.getElementById('simN').textContent = 'simulation ' + nsim + ' / ' + MAXSIM;
+  const ntot = Math.max(1, N.reduce((x,y)=>x+y,0));
+  const maxV = Math.max(...N, 1);
+  let html = '';
+  for(let a=0;a<4;a++){
+    const isSel = (a === sel), good = (a === 3);
+    html += '<div class="acard' + (isSel?' sel':'') + (good && visited[3]?' best':'') + '">' +
+      '<div class="an" style="color:' + (good ? 'var(--green)' : 'var(--fg)') + '">Action ' + a + (good?' 💰':'') + '</div>' +
+      '<div class="stat">prior <b>' + PRIOR[a].toFixed(2) + '</b></div>' +
+      '<div class="bar"><div style="width:' + (PRIOR[a]*100) + '%"></div></div>' +
+      '<div class="stat">visites <b>' + N[a] + '</b> · Q <b>' + (visited[a] ? Q[a].toFixed(1) : '—') + '</b></div>' +
+      '<div class="bar vb"><div style="width:' + (N[a]/maxV*100) + '%"></div></div>' +
+      '<div class="stat">poids π <b>' + (N[a]/ntot).toFixed(2) + '</b></div>' +
+      '<div class="stat" style="color:var(--orange)">PUCT ' + puct(a).toFixed(2) + '</div>' +
+      '</div>';
+  }
+  document.getElementById('simGrid').innerHTML = html;
+}
+simReset();
+</script>
+</body>
+</html>

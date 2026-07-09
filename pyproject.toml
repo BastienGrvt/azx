@@ -1,0 +1,25 @@
+[project]
+name = "alphazero"
+version = "0.1.0"
+description = "mctx-based Alphazero project"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "equinox>=0.13.8",
+    "jax[cuda13]",
+    "mctx",
+    "pgx",
+    "pytest>=9.1.1",
+]
+
+[tool.uv.sources]
+mctx = { workspace = true }
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = [ "src/env", "src/alphazero", "src/net" ]
