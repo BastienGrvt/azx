@@ -1,0 +1,117 @@
+"""
+Self-play for one batched game (toy loop, Python while).
+
+Per step:
+  1. build root: network(state) -> (prior, value), mask illegal actions
+  2. mctx search -> improved policy (visit distribution)
+  3. collect training target: (observation, visit_probs, reward, done-mask)
+  4. play sampled action on the REAL env (not the mctx simulation)
+Repeat until every game in the batch is terminated.
+
+Value target computed after the loop = discounted return  z_t = Σ γ^k r_{t+k}.
+Single-player: no sign alternation (would flip per current_player in 2p zero-sum).
+"""
+
+import jax
+import jax.numpy as jnp
+import equinox as eqx
+import mctx
+
+
+def selfplay(env, network, recurrent_fn, key, batch_size, num_simulations, discount=0.99):
+    init = jax.vmap(env.init)
+    step = jax.vmap(env.step)
+
+    key, sub = jax.random.split(key)
+    keys = jax.random.split(sub, batch_size)
+    state = init(keys)
+
+    # trajectory buffers (Python lists, stacked at the end)
+    obs_t, pi_t, rew_t, mask_t = [], [], [], []
+    key_action_t, key_search_t = [], []
+    done = jnp.zeros(batch_size, dtype=jnp.bool_)
+
+    while not bool(done.all()):
+
+        # --- keys generation ---
+        key, search_key = jax.random.split(key)
+        key, action_key = jax.random.split(key)
+        key_action_t.append(action_key)
+        key_search_t.append(search_key)
+
+        # --- root evaluation ---
+        prior_logits, value = eqx.filter_vmap(network)(state.observation)
+        prior_logits = jnp.where(state.legal_action_mask, prior_logits, -jnp.inf)
+        root = mctx.RootFnOutput(
+            prior_logits=prior_logits,
+            value=value,
+            embedding=state,
+        )
+
+        # --- mcts search ---
+        policy_output = mctx.muzero_policy(
+            params=network, 
+            rng_key=search_key, 
+            root=root,
+            recurrent_fn=recurrent_fn, 
+            num_simulations=num_simulations,
+            invalid_actions=~state.legal_action_mask,
+        )
+
+        # --- State and transition ---
+        obs_t.append(state.observation)
+        pi_t.append(policy_output.action_weights)
+        mask_t.append(~done)
+
+        # --- play ---
+        action = policy_output.action
+        state = step(state, action, jax.random.split(action_key, batch_size))
+        
+        # --- Reward and end condition ----
+        rew_t.append(state.rewards[:, 0] * (~done))
+        done = done | state.terminated
+
+
+    # stack: [Timestep, Batch, *]
+    obs = jnp.stack(obs_t)
+    pi = jnp.stack(pi_t)
+    rew = jnp.stack(rew_t)
+    mask = jnp.stack(mask_t)
+    key_search = jnp.stack(key_search_t)
+    key_action = jnp.stack(key_action_t)
+
+    # --- Value function ---
+    # The state-value is a backward recursive computation
+    # Cannot be computed in the while loop
+
+    # Recursive function
+    def scan_return(carry, r):
+        carry = r + discount * carry
+        return carry, carry
+
+    # Reverse the reward [r_1, ..., r_N] -> [r_N, ..., r_1]
+    rew_reversed = rew[::-1]
+    initial_value = jnp.zeros(batch_size)
+    # Recursive computation
+    final_return, val_reversed = jax.lax.scan(
+        scan_return,
+        initial_value,
+        rew_reversed,
+    )
+    # Reverse back the values [V_N, ..., V_1] -> [V_1, ..., V_N]
+    val = val_reversed[::-1]
+
+    return {
+        "observation": obs,     # [T, B, obs_dim]
+        "policy": pi,           # [T, B, action_dim]
+        "value": val,             # [T, B]
+        "mask": mask,           # [T, B]  (True = real step)
+        "keys": {
+            "action": key_action_t,
+            "search": key_search_t,
+            },
+    }
+
+
+
+

@@ -19,7 +19,8 @@ from pgx._src.types import Array, PRNGKey
 
 _LEFT  = jnp.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]], dtype=jnp.float32)
 _RIGHT = jnp.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]], dtype=jnp.float32)
-_MASK = jnp.array([[0, 1, 1], [1, 1, 0]], dtype=jnp.float32)
+_STAY = jnp.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=jnp.float32)
+_MASK = jnp.array([[1, 1, 1], [0, 1, 1], [1, 1, 0]], dtype=jnp.float32)
 _VALID = jnp.array([0, 1, 0], dtype=jnp.float32)
 _MAX_STEP = jnp.int32(8)
 
@@ -34,7 +35,7 @@ class State(core.State):
     rewards: jax.Array = jnp.float32([0.0])
     terminated: jax.Array = jnp.bool_(False)
     truncated: jax.Array = jnp.bool_(False)
-    legal_action_mask: jax.Array = jnp.array([True, True], dtype=jnp.bool_)
+    legal_action_mask: jax.Array = jnp.array([True, True, True], dtype=jnp.bool_)
     _step_count: Array = jnp.int32(0)
     _pos: jax.Array = jnp.array([1, 0, 0], dtype=jnp.float32)
 
@@ -53,7 +54,9 @@ class EnvToy(core.Env):
     def _step(self, state: State, action: Array, key: PRNGKey) -> State:
         nxt_left  = state._pos @ _LEFT.T
         nxt_right = state._pos @ _RIGHT.T
-        new_pos = jnp.where(action == 0, nxt_left, nxt_right)
+        nxt_stay = state._pos @ _STAY.T
+        moves = jnp.stack([nxt_left, nxt_right, nxt_stay])
+        new_pos = moves[action]
         reward = jnp.dot(new_pos, _VALID)
         legal_action_mask = (new_pos @ _MASK.T).astype(jnp.bool_)
         terminated = state._step_count > _MAX_STEP - 1

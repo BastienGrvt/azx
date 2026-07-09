@@ -1,15 +1,16 @@
 """
-Self-play for one batched game (toy loop, Python while).
+Self-play: jittable rollout via lax.scan on a fixed horizon, then flatten + drop padding.
 
-Per step:
-  1. build root: network(state) -> (prior, value), mask illegal actions
+Per step (scan body):
+  1. root eval: network(state) -> (prior, value), mask illegal actions
   2. mctx search -> improved policy (visit distribution)
-  3. collect training target: (observation, visit_probs, reward, done-mask)
-  4. play sampled action on the REAL env (not the mctx simulation)
-Repeat until every game in the batch is terminated.
+  3. collect target BEFORE step: (obs, policy, mask=~done)
+  4. play sampled action on the REAL env
+  5. reward AFTER step (zeroed by ~done), advance cumulative done
 
-Value target computed after the loop = discounted return  z_t = Σ γ^k r_{t+k}.
-Single-player: no sign alternation (would flip per current_player in 2p zero-sum).
+Value target = discounted return z_t = Σ γ^k r_{t+k}, computed via backward scan.
+After rollout, transitions are flattened [T,B]->[N] and padded steps (mask=False)
+are dropped. `flat[mask]` is data-dependent, so it runs OUTSIDE the jitted core.
 """
 
 import jax
@@ -18,112 +19,78 @@ import equinox as eqx
 import mctx
 
 
-# /!\ TO UNDERSTAND
-def _eval_network(network, obs):
-    # network is single-state -> vmap over the batch (partition/combine keeps it native jax.vmap)
-    arr, static = eqx.partition(network, eqx.is_array)
-
-    def apply(s):
-        net = eqx.combine(arr, static)
-        return net(s)                     # (prior_logits, value) per element
-
-    return jax.vmap(apply)(obs)
-
-
-def selfplay(env, network, recurrent_fn, key, batch_size, num_simulations, discount=0.99):
+@eqx.filter_jit
+def _rollout(env, network, recurrent_fn, key, batch_size, num_simulations, horizon, discount):
     init = jax.vmap(env.init)
     step = jax.vmap(env.step)
 
     key, sub = jax.random.split(key)
-    keys = jax.random.split(sub, batch_size)
+    keys = jax.tandom.split(sub, batch_size)
     state = init(keys)
-
-    # trajectory buffers (Python lists, stacked at the end)
-    obs_t, pi_t, rew_t, mask_t = [], [], [], []
-    key_action_t, key_search_t = [], []
     done = jnp.zeros(batch_size, dtype=jnp.bool_)
 
-    while not bool(done.all()):
+    def body(carry, _):
+        state, done, key = carry
+        key, search_key, action_key = jax.random.split(key, 3)
 
-        # --- keys generation ---
-        key, search_key = jax.random.split(key)
-        key, action_key = jax.random.split(key)
-        key_action_t.append(action_key)
-        key_search_t.append(search_key)
-
-        # --- root evaluation ---
+        # Root
         prior_logits, value = eqx.filter_vmap(network)(state.observation)
         prior_logits = jnp.where(state.legal_action_mask, prior_logits, -jnp.inf)
         root = mctx.RootFnOutput(
             prior_logits=prior_logits,
             value=value,
-            embedding=state,
+            embedding=state
         )
 
-        # --- mcts search ---
+        # MCTS
         policy_output = mctx.muzero_policy(
-            params=network, 
-            rng_key=search_key, 
+            params=network,
+            rng_key=search_key,
             root=root,
-            recurrent_fn=recurrent_fn, 
+            recurrent_fn=recurrent_fn,
             num_simulations=num_simulations,
             invalid_actions=~state.legal_action_mask,
         )
 
-        # --- State and transition ---
-        obs_t.append(state.observation)
-        pi_t.append(policy_output.action_weights)
-        mask_t.append(~done)
+        # Pre-collection data
+        obs_out, pi_out, mask_out = state.observation, policy_output.action_weights, ~done
 
-        # --- play ---
-        action = policy_output.action
-        state = step(state, action, jax.random.split(action_key, batch_size))
-        
-        # --- Reward and end condition ----
-        rew_t.append(state.rewards[:, 0] * (~done))
+        # Play the move
+        state = step(state, policy_output.action, jax.random.split(action_key, batch_size))
+
+        # Post-collection data
+        rew_out = state.rewards[:, 0] * (~done)
         done = done | state.terminated
+        return (state, done, key), (obs_out, pi_out, rew_out, mask_out)
+    
+    # final_carry, ys = lax.scan(body, init_carry, xs, length=N)
+    _, (obs, pi, rew, mask) = jax.lax.scan(body, (state, done, key), xs=None, length=horizon)
 
-
-    # stack: [Timestep, Batch, *]
-    obs = jnp.stack(obs_t)
-    pi = jnp.stack(pi_t)
-    rew = jnp.stack(rew_t)
-    mask = jnp.stack(mask_t)
-    key_search = jnp.stack(key_search_t)
-    key_action = jnp.stack(key_action_t)
-
-    # --- Value function ---
-    # The state-value is a backward recursive computation
-    # Cannot be computed in the while loop
-
-    # Recursive function
+    # backward discounted return
     def scan_return(carry, r):
         carry = r + discount * carry
         return carry, carry
+    _, val_rev = jax.lax.scan(scan_return, jnp.zeros(batch_size), rew[::-1])
+    val = val_rev[::-1]
 
-    # Reverse the reward [r_1, ..., r_N] -> [r_N, ..., r_1]
-    rew_reversed = rew[::-1]
-    initial_value = jnp.zeros(batch_size)
-    # Recursive computation
-    final_return, val_reversed = jax.lax.scan(
-        scan_return,
-        initial_value,
-        rew_reversed,
-    )
-    # Reverse back the values [V_N, ..., V_1] -> [V_1, ..., V_N]
-    val = val_reversed[::-1]
+    return {"observation": obs, "policy": pi, "value": val, "mask": mask}
 
-    return {
-        "observation": obs,     # [T, B, obs_dim]
-        "policy": pi,           # [T, B, action_dim]
-        "value": val,             # [T, B]
-        "mask": mask,           # [T, B]  (True = real step)
-        "keys": {
-            "action": key_action_t,
-            "search": key_search_t,
-            },
+
+def _flatten_mask(data):
+    # [T, B, *] -> [T*B, *] then drop padded steps (mask=False). Not jittable: shape is data-dependent.
+    T, B = data["mask"].shape
+    m = data["mask"].reshape(T * B)
+    flat = {
+        "observation": data["observation"].reshape(T * B, *data["observation"].shape[2:]),
+        "policy":      data["policy"].reshape(T * B, data["policy"].shape[-1]),
+        "value":       data["value"].reshape(T * B),
     }
+    return {k: v[m] for k, v in flat.items()}
 
+
+def selfplay(env, network, recurrent_fn, key, batch_size, num_simulations, horizon, discount=0.99):
+    data = _rollout(env, network, recurrent_fn, key, batch_size, num_simulations, horizon, discount)
+    return _flatten_mask(data)
 
 
 

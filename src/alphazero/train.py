@@ -39,7 +39,7 @@ def loss_fn(network, data_game, c_value):
     cross_entropy = optax.softmax_cross_entropy(y_policy, z_policy)
     policy_loss = _mean_masked_loss(cross_entropy, mask)
     # Value: mean squared
-    mean_square = (y_value - z_pvalue) ** 2
+    mean_square = (y_value - z_value) ** 2
     value_loss = _mean_masked_loss(mean_square, mask)
 
     loss = policy_loss + c_value * value_loss
@@ -55,4 +55,38 @@ def train_step(network, opt_state, data_game, optimizer, c_value=1.0):
     return network, opt_state, {"loss": loss, **loss_dict}
 
 
+# ---- one self-play round, aggregating n_gen calls ----
+def collect(env, network, recurrent_fn, key, B, n_gen, num_sim):
+    games = []
+    for g in range(n_gen):
+        key, sub = split(key)
+        games.append(selfplay(env, network, recurrent_fn, sub, B, num_sim))
+    # each game has its own T -> pad all to T_max, concat on batch axis
+    T_max = max(g["value"].shape[0] for g in games)
+    games = [pad_time(g, T_max) for g in games]        # pad [T,B,*]->[T_max,B,*], mask=False on pad
+    return concat_on_batch(games)                       # [T_max, n_gen*B, *]
 
+# ---- flatten [T,B,*] -> [N,*] once per round ----
+def flatten(data):
+    N = T * B
+    return {
+        "observation": data["observation"].reshape(N, *obs_shape),
+        "policy":      data["policy"].reshape(N, A),
+        "value":       data["value"].reshape(N),
+        "mask":        data["mask"].reshape(N),
+    }
+
+# ---- main AlphaZero loop ----
+for it in range(n_iter):
+    key, k_gen = split(key)
+    data = collect(env, network, recurrent_fn, k_gen, B, n_gen, num_sim)  # regen with current net
+    flat = flatten(data)                                                  # N = T_max * n_gen * B
+
+    for update in range(n_update):
+        key, k_perm = split(key)
+        perm = permutation(k_perm, N)                    # full shuffle, each sample seen once
+        for mb in split(perm, n_minibatch):              # n_minibatch slices of perm
+            batch = index(flat, mb)                      # gather [mb_size, *]
+            network, opt_state, m = train_step(network, opt_state, batch, optimizer, c_value)
+
+    # (optional) eval / log every few iters
