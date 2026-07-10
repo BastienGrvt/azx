@@ -1,70 +1,73 @@
 """
-Navigation 1D sous standard pgx.
+Navigation sur anneau sous standard pgx (goal-reaching, AlphaZero-like).
 
-Reprend exactement l'environnement de mctx/mctx_minimal.py et le réécrit
-en suivant le pattern State/Env de pgx.
+Anneau de N positions. But = atteindre le milieu.
+  État    : position sur l'anneau (indice scalaire, obs = one-hot [N])
+  Actions : 0=gauche, 1=droite, 2=stay   (décalage d'indice mod N, pas de matrice)
+  Reward  : +1 en atteignant le milieu (terminal), 0 sinon
+  Init    : position aléatoire HORS milieu (sinon partie de longueur 0)
+  Fin     : milieu atteint (goal) ; garde-fou timeout à _MAX_STEP
 
-État    : position one-hot [3]  — [1,0,0]=gauche, [0,1,0]=milieu, [0,0,1]=droite
-Actions : 0=gauche, 1=droite   (matrices de transition vectorisées)
-Reward  : +1 si nouvelle position == milieu, sinon 0
+Pas d'ambiguïté temporelle : z(état) = γ^(distance au milieu), déterministe et
+lisible dans l'observation -> le floor MSE de l'overfit est nul par construction.
 """
 
 import jax
 import jax.numpy as jnp
 
-import pgx
 import pgx.core as core
 from pgx._src.struct import dataclass
 from pgx._src.types import Array, PRNGKey
 
-_LEFT  = jnp.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]], dtype=jnp.float32)
-_RIGHT = jnp.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]], dtype=jnp.float32)
-_STAY = jnp.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=jnp.float32)
-_MASK = jnp.array([[1, 1, 1], [0, 1, 1], [1, 1, 0]], dtype=jnp.float32)
-_VALID = jnp.array([0, 1, 0], dtype=jnp.float32)
-_MAX_STEP = jnp.int32(8)
+_N = 11
+_MID = _N // 2
+_MAX_STEP = jnp.int32(32)
 
 
 @dataclass
 class State(core.State):
     @property
     def env_id(self):
-        return "MyEnv"
+        return "EnvToy"
     current_player: jax.Array = jnp.int32(0)
-    observation: jax.Array = jnp.array([1, 0, 0], dtype=jnp.float32)
+    observation: jax.Array = jnp.zeros(_N, dtype=jnp.float32)
     rewards: jax.Array = jnp.float32([0.0])
     terminated: jax.Array = jnp.bool_(False)
     truncated: jax.Array = jnp.bool_(False)
-    legal_action_mask: jax.Array = jnp.array([True, True, True], dtype=jnp.bool_)
+    legal_action_mask: jax.Array = jnp.ones(3, dtype=jnp.bool_)
     _step_count: Array = jnp.int32(0)
-    _pos: jax.Array = jnp.array([1, 0, 0], dtype=jnp.float32)
+    _pos: jax.Array = jnp.int32(0)     # scalar index on the ring
 
 
 class EnvToy(core.Env):
     @property
-    def id(self):      return "EnvTest"
+    def id(self):      return "EnvToy"
     @property
     def version(self): return "v0"
     @property
     def num_players(self): return 1
 
     def _init(self, key: PRNGKey) -> State:
-        return State()
+        # random start among the N-1 non-goal positions (avoid length-0 games)
+        offset = jax.random.randint(key, (), 1, _N) 
+        pos = (_MID + offset) % _N
+        return State(_pos=pos)
 
     def _step(self, state: State, action: Array, key: PRNGKey) -> State:
-        nxt_left  = state._pos @ _LEFT.T
-        nxt_right = state._pos @ _RIGHT.T
-        nxt_stay = state._pos @ _STAY.T
-        moves = jnp.stack([nxt_left, nxt_right, nxt_stay])
-        new_pos = moves[action]
-        reward = jnp.dot(new_pos, _VALID)
-        legal_action_mask = (new_pos @ _MASK.T).astype(jnp.bool_)
-        terminated = state._step_count > _MAX_STEP - 1
-        return state.replace(_pos=new_pos, legal_action_mask=legal_action_mask, rewards=jnp.array([reward]), terminated=terminated)
+        # ring move by index shift: left=-1, right=+1, stay=0  (mod N)
+        shift = jnp.array([-1, 1, 0])[action]
+        new_pos = (state._pos + shift) % _N
+
+        reached = new_pos == _MID
+        reward = reached.astype(jnp.float32)
+        terminated = reached
+        return state.replace(_pos=new_pos, rewards=jnp.array([reward]), terminated=terminated)
 
     def _observe(self, state: State, player_id: Array) -> Array:
-        return state._pos  # pgx core fait state.replace(observation=...) lui-même
+        return jax.nn.one_hot(state._pos, _N)
 
     def show(self, state: State) -> None:
-        print(jnp.argmax(state._pos, axis=-1))
+        print(int(state._pos))
+
+
 
