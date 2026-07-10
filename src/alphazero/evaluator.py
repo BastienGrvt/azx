@@ -1,4 +1,6 @@
 """
+ToDo: new comment header version
+
 mctx recurrent_fn builder for a pgx environment (AlphaZero-style).
 
 recurrent_fn = combined dynamics + evaluation, the only AZ/MuZero-swappable layer.
@@ -42,7 +44,8 @@ def make_recurrent_fn(env, discount: float = 0.99):
             reward       = reward,
             discount     = discount * (1.0 - terminated),
             prior_logits = jnp.where(next_state.legal_action_mask, prior_logits, -jnp.inf),
-            value        = value,
+            # value        = value,
+            value = jnp.where(next_state.terminated, 0.0, value),
         )
         return out, next_state
 

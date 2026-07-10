@@ -1,92 +1,112 @@
 """
+ToDo: new comment header version
+
 AlphaZero training step (single gradient pass over a self-play batch).
 
 Targets come from selfplay():
-  observation [T,B,obs]  policy [T,B,A]  value [T,B]  mask [T,B]
-Time/batch axes are flattened to N=T*B independent samples; padded steps
-(mask=False, post-termination) are excluded via masked means.
+  observation [N,obs]  policy [N,A]  value [N]
+selfplay() already flattens time/batch (continuous rollout, no padding), so
+every sample is a valid transition -> no masking needed here.
 
 Loss = policy_loss + c_value * value_loss
   policy_loss : cross-entropy(network logits, MCTS visit distribution)
   value_loss  : MSE(network value, discounted return)
 """
 
+import jax
 import jax.numpy as jnp
 import equinox as eqx
 import optax
 
-
-def _mean_masked_loss(loss, mask):
-    # Average on real sample where `mask[i]=True`
-    # Padded steps does not contribute (loss = 0)
-    mask = mask.astype(loss.dtype)
-    return jnp.sum(loss * mask) / jnp.sum(mask)
+from .selfplay import selfplay
 
 
 @eqx.filter_value_and_grad(has_aux=True)
-def loss_fn(network, data_game, c_value):
-    # --- Flatten [T,B,*] -> [T*B,*] ---
-    obs = data_game["observation"].reshape(-1, *data_game["observation"].shape[2:])
-    z_policy = data_game["policy"].reshape(-1, data_game["policy"].shape[-1])
-    z_value = data_game["value"].reshape(-1)
-    mask = data_game["mask"].reshape(-1)
+def loss_fn(network, data_minibatch, c_value):
+    # batch already flat [mb_size, *] -> predict directly
+    obs = data_minibatch["observation"]
+    z_policy = data_minibatch["policy"]
+    z_value = data_minibatch["value"]
 
     # --- Network prediction ---
     y_policy, y_value = eqx.filter_vmap(network)(obs)
 
     # --- Loss ---
     # Policy: cross-entropy
-    cross_entropy = optax.softmax_cross_entropy(y_policy, z_policy)
-    policy_loss = _mean_masked_loss(cross_entropy, mask)
+    policy_loss = optax.softmax_cross_entropy(y_policy, z_policy).mean()
     # Value: mean squared
-    mean_square = (y_value - z_value) ** 2
-    value_loss = _mean_masked_loss(mean_square, mask)
+    value_loss = ((y_value - z_value) ** 2).mean()
 
     loss = policy_loss + c_value * value_loss
     return loss, {"policy_loss": policy_loss, "value_loss": value_loss}
 
 
 @eqx.filter_jit
-def train_step(network, opt_state, data_game, optimizer, c_value=1.0):
+def train_step(network, opt_state, data_minibatch, optimizer, c_value=1.0):
     # one gradient step; returns updated network + optimizer state + metrics
-    (loss, loss_dict), grads = loss_fn(network, data_game, c_value)
+    (loss, loss_dict), grads = loss_fn(network, data_minibatch, c_value)
     updates, opt_state = optimizer.update(grads, opt_state, network)
     network = eqx.apply_updates(network, updates)
     return network, opt_state, {"loss": loss, **loss_dict}
 
 
-# ---- one self-play round, aggregating n_gen calls ----
-def collect(env, network, recurrent_fn, key, B, n_gen, num_sim):
-    games = []
-    for g in range(n_gen):
-        key, sub = split(key)
-        games.append(selfplay(env, network, recurrent_fn, sub, B, num_sim))
-    # each game has its own T -> pad all to T_max, concat on batch axis
-    T_max = max(g["value"].shape[0] for g in games)
-    games = [pad_time(g, T_max) for g in games]        # pad [T,B,*]->[T_max,B,*], mask=False on pad
-    return concat_on_batch(games)                       # [T_max, n_gen*B, *]
+# ---- one self-play round, aggregating n_roll calls (jitted via scan) ----
+@eqx.filter_jit
+def collect(env, network, recurrent_fn, key, B, n_roll, num_sim, n_step, discount=0.99):
+    """
+    Data collector, does n_roll rollout
+    1. Get data from n_roll call of selplay(...)
+    2. Merge [n_roll, N, *] -> [N*n_roll, *] with N = B*n_step
+    """
 
-# ---- flatten [T,B,*] -> [N,*] once per round ----
-def flatten(data):
-    N = T * B
-    return {
-        "observation": data["observation"].reshape(N, *obs_shape),
-        "policy":      data["policy"].reshape(N, A),
-        "value":       data["value"].reshape(N),
-        "mask":        data["mask"].reshape(N),
-    }
+    def body_rollout(key, _):
+        key, key_sub = jax.random.split(key)
+        game = selfplay(env, network, recurrent_fn, key_sub, B, num_sim, n_step, discount)  # [N, *]
+        return key, game
+    
+    _, data_roll = jax.lax.scan(body_rollout, key, xs=None, length=n_roll)
+    out = {item: data.reshape(-1, *data.shape[2:]) for item, data in data_roll.items()}
 
-# ---- main AlphaZero loop ----
-for it in range(n_iter):
-    key, k_gen = split(key)
-    data = collect(env, network, recurrent_fn, k_gen, B, n_gen, num_sim)  # regen with current net
-    flat = flatten(data)                                                  # N = T_max * n_gen * B
+    return out
 
-    for update in range(n_update):
-        key, k_perm = split(key)
-        perm = permutation(k_perm, N)                    # full shuffle, each sample seen once
-        for mb in split(perm, n_minibatch):              # n_minibatch slices of perm
-            batch = index(flat, mb)                      # gather [mb_size, *]
-            network, opt_state, m = train_step(network, opt_state, batch, optimizer, c_value)
+# ---- Main AlphaZero loop ----
+def train(
+    env, network, recurrent_fn, optimizer, opt_state, key,
+    n_iter, n_roll, n_update, n_minibatch,
+    n_batch, n_step, num_sim,
+    c_value=1.0, discount=0.99
+):
+    """
+    AlphaZero training loop
 
-    # (optional) eval / log every few iters
+    1. Get data from collect(...)
+    2. Batch the data in minibatch
+    3. Update the neural network with train_step(...)
+
+    About the n_*:
+        n_iter:      number of data collection
+        n_roll:      number of rollout per n_iter
+        n_update:    number of passes over the collected data per n_iter
+        n_minibatch: number of minibatches per n_update (fixed size, drop_last)
+        n_batch:     rollout batch size (parallel games)
+        n_step:      number of step per game (rollout horizon)
+        num_sim:     MCTS simulations per move
+    """
+    for _ in range(n_iter):
+        key, key_roll = jax.random.split(key)
+        # Get data
+        data_roll = collect(
+            env, network=network, recurrent_fn=recurrent_fn, key=key_roll,
+            B=n_batch, n_roll=n_roll, num_sim=num_sim, n_step=n_step, discount=discount,
+        )
+        # N = n_step*n_batch*n_roll
+        N = data_roll["value"].shape[0]
+        size_minibatch = N // n_minibatch
+        for _ in range(n_update):
+            key, key_perm = jax.random.split(key)
+            idx_perm = jax.random.permutation(key_perm, N)
+            idx_perm_cut = idx_perm[:n_minibatch * size_minibatch]
+            for idx_mb in idx_perm_cut.reshape(n_minibatch, size_minibatch):
+                data_minibatch = {k: v[idx_mb] for k, v in data_roll.items()}
+                network, opt_state, m = train_step(network, opt_state, data_minibatch, optimizer, c_value)
+    return network, opt_state
