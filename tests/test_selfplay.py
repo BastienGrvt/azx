@@ -14,7 +14,7 @@ from alphazero import make_recurrent_fn, selfplay
 DISCOUNT = 0.9
 B = 4
 NUM_SIM = 8
-N_STEP = 16                      # rollout horizon
+N_STEP = 16
 
 
 def test_selfplay(env_toy, net_toy, key):

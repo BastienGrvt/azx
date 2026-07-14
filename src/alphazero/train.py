@@ -17,6 +17,7 @@ import jax
 import jax.numpy as jnp
 import equinox as eqx
 import optax
+import time
 
 from .selfplay import selfplay
 
@@ -70,11 +71,12 @@ def collect(env, network, recurrent_fn, key, B, n_roll, num_sim, n_step, discoun
     return out
 
 # ---- Main AlphaZero loop ----
+# TODO: logs and time
 def train(
     env, network, recurrent_fn, optimizer, opt_state, key,
     n_iter, n_roll, n_update, n_minibatch,
     n_batch, n_step, num_sim,
-    c_value=1.0, discount=0.99
+    c_value=1.0, discount=0.99, verbose=True,
 ):
     """
     AlphaZero training loop
@@ -92,21 +94,40 @@ def train(
         n_step:      number of step per game (rollout horizon)
         num_sim:     MCTS simulations per move
     """
-    for _ in range(n_iter):
+    logs = []
+    for idx_iter in range(n_iter):
+        tic_iter = time.perf_counter()
         key, key_roll = jax.random.split(key)
         # Get data
+        if verbose:
+            print(f"=== Starting iteration: {idx_iter} ===")
+            print(f"Playing virtual games...")
+        tic_roll = time.perf_counter()
         data_roll = collect(
             env, network=network, recurrent_fn=recurrent_fn, key=key_roll,
             B=n_batch, n_roll=n_roll, num_sim=num_sim, n_step=n_step, discount=discount,
         )
+        time_roll = tic_roll - time.perf_counter()
+        if verbose:
+            print(f"Virtal games ended in {time_roll:.1f}s")
         # N = n_step*n_batch*n_roll
         N = data_roll["value"].shape[0]
         size_minibatch = N // n_minibatch
-        for _ in range(n_update):
+        for idx_update in range(n_update):
+            tic_update = time.perf_counter()
             key, key_perm = jax.random.split(key)
             idx_perm = jax.random.permutation(key_perm, N)
             idx_perm_cut = idx_perm[:n_minibatch * size_minibatch]
             for idx_mb in idx_perm_cut.reshape(n_minibatch, size_minibatch):
                 data_minibatch = {k: v[idx_mb] for k, v in data_roll.items()}
-                network, opt_state, m = train_step(network, opt_state, data_minibatch, optimizer, c_value)
+                network, opt_state, loss = train_step(network, opt_state, data_minibatch, optimizer, c_value)
+                logs.append({
+                    "iter": idx_iter,
+                    "minibatch": idx_mb
+                    "update": idx_update,
+                    "loss": loss
+                    })
     return network, opt_state
+
+
+
