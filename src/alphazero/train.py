@@ -48,7 +48,7 @@ def loss_fn(network, data_minibatch, c_value):
 
 
 @eqx.filter_jit
-def train_step(network, opt_state, data_minibatch, optimizer, c_value=1.0):
+def train_step(network, opt_state, data_minibatch, optimizer, c_value):
     # one gradient step; returns updated network + optimizer state + metrics
     (loss, loss_dict), grads = loss_fn(network, data_minibatch, c_value)
     updates, opt_state = optimizer.update(grads, opt_state, network)
@@ -58,7 +58,11 @@ def train_step(network, opt_state, data_minibatch, optimizer, c_value=1.0):
 
 # ---- one self-play round, aggregating n_roll calls (jitted via scan) ----
 @eqx.filter_jit
-def collect(env, network, recurrent_fn, key, n_roll, n_batch, n_step, num_sim, discount):
+def collect(
+    env, network, recurrent_fn, key, 
+    n_roll, n_batch, n_step, num_sim, 
+    discount, temperature, dirichlet_fraction, dirichlet_alpha,
+):
     """
     Data collector, does n_roll rollout
     1. Get data from n_roll call of selplay(...)
@@ -67,7 +71,19 @@ def collect(env, network, recurrent_fn, key, n_roll, n_batch, n_step, num_sim, d
 
     def body_rollout(key, _):
         key, key_sub = jax.random.split(key)
-        game = selfplay(env, network, recurrent_fn, key_sub, n_batch, n_step, num_sim, discount)
+        game = selfplay(
+            env=env,
+            network=network,
+            recurrent_fn=recurrent_fn,
+            key=key,
+            n_batch=n_batch,
+            n_step=n_step,
+            num_sim=num_sim, 
+            discount=discount, 
+            temperature=temperature,
+            dirichlet_fraction=dirichlet_fraction,
+            dirichlet_alpha=dirichlet_alpha
+        )
         return key, game
     
     _, data_roll = jax.lax.scan(body_rollout, key, xs=None, length=n_roll)
@@ -179,7 +195,12 @@ def train(
     env, network, recurrent_fn, optimizer, opt_state, key,
     n_iter, n_roll, n_update, n_minibatch,
     n_batch, n_step, num_sim,
-    discount, c_value=1.0, verbose=True,
+    discount=0.9,
+    temperature=1.0,
+    dirichlet_fraction=0.25,
+    dirichlet_alpha=0.3,
+    c_value=1.0, 
+    verbose=True,
 ):
     """
     AlphaZero training loop
@@ -211,9 +232,18 @@ def train(
             tic_warm = time.perf_counter()
             key, key_warm = jax.random.split(key)
             warm = collect(
-                env=env, network=network, recurrent_fn=recurrent_fn, key=key_warm,
-                n_roll=n_roll, n_batch=n_batch, n_step=n_step, num_sim=num_sim,
-                discount=discount,
+                env=env,
+                network=network,
+                recurrent_fn=recurrent_fn,
+                key=key_warm,
+                n_roll=n_roll,
+                n_batch=n_batch,
+                n_step=n_step,
+                num_sim=num_sim,
+                discount=discount, 
+                temperature=temperature,
+                dirichlet_fraction=dirichlet_fraction,
+                dirichlet_alpha=dirichlet_alpha
             )
             jax.block_until_ready(warm)  # force compile + first run to actually finish
         console.print(f"[green]✓ Compiled in {time.perf_counter() - tic_warm:.1f}s")
@@ -244,9 +274,18 @@ def train(
             # --- Data collection (self-play) ---
             tic_roll = time.perf_counter()
             data_roll = collect(
-                env=env, network=network, recurrent_fn=recurrent_fn, key=key_roll,
-                n_roll=n_roll, n_batch=n_batch, n_step=n_step, num_sim=num_sim,
-                discount=discount,
+                env=env,
+                network=network,
+                recurrent_fn=recurrent_fn,
+                key=key_roll,
+                n_roll=n_roll,
+                n_batch=n_batch,
+                n_step=n_step,
+                num_sim=num_sim,
+                discount=discount, 
+                temperature=temperature,
+                dirichlet_fraction=dirichlet_fraction,
+                dirichlet_alpha=dirichlet_alpha
             )
             time_roll = time.perf_counter() - tic_roll
             log_roll = log_roll | {
@@ -270,7 +309,13 @@ def train(
                 mb_metrics = []
                 for idx_mb in idx_perm_cut.reshape(n_minibatch, size_minibatch):
                     data_minibatch = {k: v[idx_mb] for k, v in data_roll.items()}
-                    network, opt_state, loss = train_step(network, opt_state, data_minibatch, optimizer, c_value)
+                    network, opt_state, loss = train_step(
+                        network=network,
+                        opt_state=opt_state,
+                        data_minibatch=data_minibatch,
+                        optimizer=optimizer,
+                        c_value=c_value
+                    )
                     mb_metrics.append(jax.device_get(loss))
 
                 time_update = time.perf_counter() - tic_update

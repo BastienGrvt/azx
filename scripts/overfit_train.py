@@ -22,8 +22,15 @@ n_step = 32
 n_sim = 16
 c_value = 1.0
 discount = 0.9
+# Train
+temp_train = 1.0
+diri_fraction_train = 0.25
+diri_alpha_train = 0.3
+# Post-training game
+temp_game = 0.0
+diri_fraction_game = 0.0
+diri_alpha_game = 0.3
 
-# n_batch, n_step, num_sim, n_roll, n_update, n_minibatch = 8, 4, 4, 2, 2, 2
 
 key = jax.random.key(0)
 key, train_key = jax.random.split(key)
@@ -43,18 +50,41 @@ opt_state = optimizer.init(eqx.filter(network, eqx.is_array))
 
 # --- Full training loop ---
 network, opt_state, logs = train(
-    my_env, network, recurrent_fn, optimizer, opt_state, train_key,
-    n_iter=n_iter, n_roll=n_roll, n_update=n_update, n_minibatch=n_minibatch,
-    n_batch=n_batch, n_step=n_step, num_sim=n_sim,
-    c_value=c_value, discount=discount, verbose=True,
+    env=my_env,
+    network=network,
+    recurrent_fn=recurrent_fn,
+    optimizer=optimizer,
+    opt_state=opt_state,
+    key=train_key,
+    n_iter=n_iter,
+    n_roll=n_roll,
+    n_update=n_update,
+    n_minibatch=n_minibatch,
+    n_batch=n_batch,
+    n_step=n_step,
+    num_sim=n_sim,
+    discount=discount,
+    temperature=temp_train,
+    dirichlet_fraction=diri_fraction_train,
+    dirichlet_alpha=diri_alpha_train,
+    c_value=c_value,
+    verbose=True,
 )
 
 # --- Post-training game ---
 data_game = selfplay(
-        env=my_env, network=network, recurrent_fn=recurrent_fn, key=play_key,
-        n_batch=n_batch, n_step=n_step, num_sim=n_sim,
-        discount=discount
-    )
+    env=my_env,
+    network=network,
+    recurrent_fn=recurrent_fn,
+    key=play_key,
+    n_batch=n_batch,
+    n_step=n_step,
+    num_sim=n_sim,
+    discount=discount,
+    temperature=temp_game,
+    dirichlet_fraction=diri_fraction_game,
+    dirichlet_alpha=diri_alpha_game,
+)
 
 # --- Post-Training Statistics ---
 console = Console()

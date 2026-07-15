@@ -27,7 +27,11 @@ from .search import search
 
 
 @eqx.filter_jit
-def _rollout(env, network, recurrent_fn, key, n_batch, n_step, num_sim, discount):
+def _rollout(
+    env, network, recurrent_fn, key, 
+    n_batch, n_step, num_sim, 
+    discount, temperature, dirichlet_fraction, dirichlet_alpha
+):
     init = jax.vmap(env.init)
     step = jax.vmap(auto_reset(env.step, env.init))  # refills terminal slots
 
@@ -40,7 +44,16 @@ def _rollout(env, network, recurrent_fn, key, n_batch, n_step, num_sim, discount
         key, key_mcts, key_step = jax.random.split(key, 3)
 
         # MCTS Search Call
-        mcts_out = search(network, recurrent_fn, state, key_mcts, num_sim)
+        mcts_out = search(
+            network=network, 
+            recurrent_fn=recurrent_fn, 
+            state=state, 
+            key=key_mcts, 
+            num_sim=num_sim,
+            temperature=temperature, 
+            dirichlet_fraction=dirichlet_fraction, 
+            dirichlet_alpha=dirichlet_alpha,
+        )
 
         # Pre-collection data (aligned on o_t)
         obs_out, pi_out = state.observation, mcts_out.action_weights
@@ -88,11 +101,23 @@ def _flatten(data):
 
 
 @eqx.filter_jit
-def selfplay(env, network, recurrent_fn, key, n_batch, n_step, num_sim, discount):
+def selfplay(
+    env, network, recurrent_fn, key, 
+    n_batch, n_step, num_sim, 
+    discount, temperature, dirichlet_fraction, dirichlet_alpha,
+):
     data = _rollout(
-            env=env, network=network, recurrent_fn=recurrent_fn, key=key, 
-            n_batch=n_batch, n_step=n_step, num_sim=num_sim, 
-            discount=discount
+            env=env,
+            network=network,
+            recurrent_fn=recurrent_fn,
+            key=key,
+            n_batch=n_batch,
+            n_step=n_step,
+            num_sim=num_sim, 
+            discount=discount, 
+            temperature=temperature,
+            dirichlet_fraction=dirichlet_fraction,
+            dirichlet_alpha=dirichlet_alpha
         )
     return _flatten(data)
 

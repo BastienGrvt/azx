@@ -54,7 +54,11 @@ def make_recurrent_fn(env, discount: float = 0.99):
 
     return recurrent_fn
 
-def search(network, recurrent_fn, state, key, num_simulations):
+def search(
+    network, recurrent_fn, state, key, num_sim,
+    temperature, dirichlet_fraction, dirichlet_alpha,
+):
+    # Root prior + value from the network, mask illegal actions to -inf
     prior_logits, value = eqx.filter_vmap(network)(state.observation)
     prior_logits = jnp.where(state.legal_action_mask, prior_logits, -jnp.inf)
 
@@ -64,13 +68,16 @@ def search(network, recurrent_fn, state, key, num_simulations):
         value=value,
         embedding=state,
     )
-    
-    # MCTS Search
+
+    # MCTS search
     return mctx.muzero_policy(
         params=network,
         rng_key=key,
         root=root,
         recurrent_fn=recurrent_fn,
-        num_simulations=num_simulations,
+        num_simulations=num_sim,
         invalid_actions=~state.legal_action_mask,
+        temperature=temperature,
+        dirichlet_fraction=dirichlet_fraction,
+        dirichlet_alpha=dirichlet_alpha,
     )
