@@ -24,8 +24,12 @@ observation_shape = my_env.observation_shape
 network = NetToy(observation_shape, num_actions, key=net_key)
 recurrent_fn = make_recurrent_fn(my_env, discount=discount)
 
-# --- Pre-trained game ---
-data_game = selfplay(my_env, network, recurrent_fn, sp_key, n_batch, n_sim, n_step, discount=discount)
+# --- Collecting data ---
+data_game = selfplay(
+        env=my_env, network=network, recurrent_fn=recurrent_fn, key=sp_key,
+        n_batch=n_batch, n_step=n_step, num_sim=n_sim,
+        discount=discount
+    )
 
 # --- Overfit that batch ---
 optimizer = optax.adam(1e-2)
@@ -42,7 +46,11 @@ for i in range(n_update):
         print(f"{i:4d}  loss={m['loss']:.4f}  policy={m['policy_loss']:.4f}  value={m['value_loss']:.4f}")
 
 # --- Post-training game ---
-data_game = selfplay(my_env, network, recurrent_fn, sp_key, n_batch, n_sim, n_step, discount=discount)
+data_game = selfplay(
+        env=my_env, network=network, recurrent_fn=recurrent_fn, key=sp_key,
+        n_batch=n_batch, n_step=n_step, num_sim=n_sim,
+        discount=discount
+    )
 
 # --- Plot loss vs step ---
 plt.figure(figsize=(8, 5))

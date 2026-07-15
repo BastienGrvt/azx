@@ -1,4 +1,3 @@
-from .evaluator import make_recurrent_fn
 from .selfplay import selfplay
-from .train import train_step
-from .search import search
+from .train import train_step, train
+from .search import search, make_recurrent_fn

@@ -27,12 +27,12 @@ from .search import search
 
 
 @eqx.filter_jit
-def _rollout(env, network, recurrent_fn, key, batch_size, num_simulations, n_step, discount):
+def _rollout(env, network, recurrent_fn, key, n_batch, n_step, num_sim, discount):
     init = jax.vmap(env.init)
     step = jax.vmap(auto_reset(env.step, env.init))  # refills terminal slots
 
     key, sub = jax.random.split(key)
-    keys = jax.random.split(sub, batch_size)
+    keys = jax.random.split(sub, n_batch)
     state = init(keys)
 
     def body_game(carry, _):
@@ -40,13 +40,13 @@ def _rollout(env, network, recurrent_fn, key, batch_size, num_simulations, n_ste
         key, key_mcts, key_step = jax.random.split(key, 3)
 
         # MCTS Search Call
-        mcts_out = search(network, recurrent_fn, state, key_mcts, num_simulations)
+        mcts_out = search(network, recurrent_fn, state, key_mcts, num_sim)
 
         # Pre-collection data (aligned on o_t)
         obs_out, pi_out = state.observation, mcts_out.action_weights
 
         # Play the move (auto_reset: on termination, slot restarts; reward/terminated preserved)
-        state = step(state, mcts_out.action, jax.random.split(key_step, batch_size))
+        state = step(state, mcts_out.action, jax.random.split(key_step, n_batch))
 
         # Post-collection data (reward of the action taken on o_t; terminated = cut flag)
         rew_out, term_out = state.rewards[:, 0], state.terminated
@@ -70,7 +70,7 @@ def _rollout(env, network, recurrent_fn, key, batch_size, num_simulations, n_ste
     # Game
     _, (obs, pi, rew, term) = jax.lax.scan(body_game, (state, key), xs=None, length=n_step)
     # Value (backward, boundaries cut by term)
-    _, val_rev = jax.lax.scan(body_value, jnp.zeros(batch_size), (rew[::-1], term[::-1]))
+    _, val_rev = jax.lax.scan(body_value, jnp.zeros(n_batch), (rew[::-1], term[::-1]))
     val = val_rev[::-1]
 
     return {"observation": obs, "policy": pi, "value": val}
@@ -88,8 +88,12 @@ def _flatten(data):
 
 
 @eqx.filter_jit
-def selfplay(env, network, recurrent_fn, key, batch_size, num_simulations, n_step, discount=0.99):
-    data = _rollout(env, network, recurrent_fn, key, batch_size, num_simulations, n_step, discount)
+def selfplay(env, network, recurrent_fn, key, n_batch, n_step, num_sim, discount):
+    data = _rollout(
+            env=env, network=network, recurrent_fn=recurrent_fn, key=key, 
+            n_batch=n_batch, n_step=n_step, num_sim=num_sim, 
+            discount=discount
+        )
     return _flatten(data)
 
 

@@ -12,6 +12,7 @@ dependencies = [
     "optax>=0.2.8",
     "pgx",
     "pytest>=9.1.1",
+    "rich>=14.3.4",
 ]
 
 [tool.uv.sources]
