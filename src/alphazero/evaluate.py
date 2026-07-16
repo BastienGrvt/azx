@@ -1,18 +1,17 @@
-
 import jax
 import jax.numpy as jnp
 import equinox as eqx
-import mctx
-from pgx.experimental import auto_reset
 from .search import search
 
 
-
-
 @eqx.filter_jit
-def _rollout(env, network, recurrent_fn, key, n_batch, n_step, num_sim, discount):
+def _rollout(
+    env, network, recurrent_fn, key,
+    n_batch, n_step, num_sim,
+    discount, temperature, dirichlet_fraction, dirichlet_alpha,
+):
     init = jax.vmap(env.init)
-    step = jax.vmap(auto_reset(env.step, env.init))
+    step = jax.vmap(env.step)
 
     key, sub = jax.random.split(key)
     keys = jax.random.split(sub, n_batch)
@@ -22,49 +21,69 @@ def _rollout(env, network, recurrent_fn, key, n_batch, n_step, num_sim, discount
         state, key = carry
         key, key_mcts, key_step = jax.random.split(key, 3)
 
-        # MCTS Search Call
-        mcts_out = search(network, recurrent_fn, state, key_mcts, num_sim)
+        # MCTS search
+        mcts_out = search(
+            network=network,
+            recurrent_fn=recurrent_fn,
+            state=state,
+            key=key_mcts,
+            num_sim=num_sim,
+            temperature=temperature,
+            dirichlet_fraction=dirichlet_fraction,
+            dirichlet_alpha=dirichlet_alpha,
+        )
 
-        # Pre-collection data (aligned on o_t)
-        action = argmax(mcts_out.action_weights, axis=-1)
-
-        # Play the move (auto_reset: on termination, slot restarts; reward/terminated preserved)
+        # Greedy play
         state = step(state, mcts_out.action, jax.random.split(key_step, n_batch))
 
-        # Post-collection data (reward of the action taken on o_t; terminated = cut flag)
-        rew_out, term_out = state.rewards[:, 0], state.terminated
-        return (state, key), (obs_out, pi_out, rew_out, term_out)
+        # Get reward and terminated hook
+        reward_out, terminated_out = state.rewards[:, 0], state.terminated
+        return (state, key), (reward_out, terminated_out)
 
-    # backward discounted return, cut at game boundaries via (1 - term)
-    def body_value(carry, x):
-        r, term = x
-        # if new game: carry = r (last reward of the new game)
-        # else: standard back-calculation
-        carry = r + discount * carry * (1 - term)
-        return carry, carry
+    # --- Play the games ---
+    _, (reward, terminated) = jax.lax.scan(body_game, (state, key), xs=None, length=n_step)
 
-    # --- Jax Scan ---
+    # --- Metrics ---
+    # Games succeded
+    success = terminated.any(axis=0)
+    n_success = success.sum()
+    # Games score: score = sum_k gama^k * reward
+    discounts = discount ** jnp.arange(n_step)
+    score = (reward * discounts[:, None]).sum(axis=0)
+    # Length
+    length = jnp.argmax(terminated, axis=0) + 1
+    # Mean values
+    mean_success = success.mean()
+    mean_score  = score.mean()
+    mean_length  = jnp.where(n_success > 0, (length * success).sum() / jnp.maximum(n_success, 1), 0.0)
 
-    # body(carry, X) -> new_carry, Y
-    # lax.scan scans body for `length=n_step`
-    # lax.scan stacks the Ys as (n_step, B, length(Y))
-    # final_carry, Ys = lax.scan(body, init_carry, Xs, length=N)
-
-    # Game
-    _, (obs, pi, rew, term) = jax.lax.scan(body_game, (state, key), xs=None, length=n_step)
-    # Value (backward, boundaries cut by term)
-    _, val_rev = jax.lax.scan(body_value, jnp.zeros(n_batch), (rew[::-1], term[::-1]))
-    val = val_rev[::-1]
-
-    return {"observation": obs, "policy": pi, "value": val}
-
-
-def _flatten(data):
-    # [T, B, *] -> [T*B, *]
-    # Now a plain reshape (no masking): jittable.
-    T, B = data["value"].shape
     return {
-        "observation": data["observation"].reshape(T * B, *data["observation"].shape[2:]),
-        "policy":      data["policy"].reshape(T * B, data["policy"].shape[-1]),
-        "value":       data["value"].reshape(T * B),
+        "length": length,
+        "score": score,
+        "success": success,
+        "n_success": n_success,
+        "mean_success": mean_success,
+        "mean_score":  mean_score,
+        "mean_length":  mean_length,
     }
+
+
+@eqx.filter_jit
+def evaluate(
+    env, network, recurrent_fn, key,
+    n_batch, n_step, num_sim,
+    discount=1.0, temperature=0.0, dirichlet_fraction=0.0, dirichlet_alpha=0.3,
+):
+    metrics = _rollout(
+        env=env, network=network,
+        recurrent_fn=recurrent_fn,
+        key=key,
+        n_batch=n_batch,
+        n_step=n_step,
+        num_sim=num_sim,
+        discount=discount,
+        temperature=temperature,
+        dirichlet_fraction=dirichlet_fraction,
+        dirichlet_alpha=dirichlet_alpha,
+    )
+    return metrics

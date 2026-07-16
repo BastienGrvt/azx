@@ -20,7 +20,7 @@ import equinox as eqx
 import mctx
 
 
-def make_recurrent_fn(env, discount: float = 0.99):
+def make_recurrent_fn(env, discount):
     # Batch pgx dynamics
     step = jax.vmap(env.step)
 

@@ -8,7 +8,7 @@ from rich.table import Table
 
 from env import EnvToy
 from net import NetToy
-from alphazero import make_recurrent_fn, selfplay, train
+from alphazero import make_recurrent_fn, train
 
 # --- Hyperparameters ---
 # Training
@@ -22,20 +22,20 @@ n_step = 32
 n_sim = 16
 c_value = 1.0
 discount = 0.9
-# Train
+# Train policy
 temp_train = 1.0
 diri_fraction_train = 0.25
 diri_alpha_train = 0.3
-# Post-training game
-temp_game = 0.0
-diri_fraction_game = 0.0
-diri_alpha_game = 0.3
-
+# Eval
+eval = True
+eval_every = 1
+eval_n_batch = 2**12
+eval_n_step = 16
+eval_num_sim = 16
 
 key = jax.random.key(0)
 key, train_key = jax.random.split(key)
 key, net_key = jax.random.split(key)
-key, play_key = jax.random.split(key)
 
 # --- Set up ---
 my_env = EnvToy()
@@ -48,7 +48,7 @@ recurrent_fn = make_recurrent_fn(my_env, discount=discount)
 optimizer = optax.adam(1e-2)
 opt_state = optimizer.init(eqx.filter(network, eqx.is_array))
 
-# --- Full training loop ---
+# --- Full training loop (eval woven in) ---
 network, opt_state, logs = train(
     env=my_env,
     network=network,
@@ -64,51 +64,35 @@ network, opt_state, logs = train(
     n_step=n_step,
     num_sim=n_sim,
     discount=discount,
+    c_value=c_value,
     temperature=temp_train,
     dirichlet_fraction=diri_fraction_train,
     dirichlet_alpha=diri_alpha_train,
-    c_value=c_value,
+    eval=eval,
+    eval_every=eval_every,
+    eval_n_batch=eval_n_batch,
+    eval_n_step=eval_n_step,
+    eval_num_sim=eval_num_sim,
     verbose=True,
 )
 
-# --- Post-training game ---
-data_game = selfplay(
-    env=my_env,
-    network=network,
-    recurrent_fn=recurrent_fn,
-    key=play_key,
-    n_batch=n_batch,
-    n_step=n_step,
-    num_sim=n_sim,
-    discount=discount,
-    temperature=temp_game,
-    dirichlet_fraction=diri_fraction_game,
-    dirichlet_alpha=diri_alpha_game,
-)
-
-# --- Post-Training Statistics ---
 console = Console()
-stat = Table(title="Value/policy per position", header_style="bold magenta", show_edge=False)
-stat.add_column("pos", justify="right", style="dim")
-stat.add_column("n", justify="right")
-stat.add_column("val_mean", justify="right", style="green")
-stat.add_column("pi_mean (L / R / stay)", justify="left")
 
-# Data is already flat [N, *] (no mask, continuous rollout)
-obs = data_game["observation"]
-val = data_game["value"]
+# --- Network policy/value ---
+N = observation_shape[0]
+all_obs = jnp.eye(N)
+logits, values = eqx.filter_vmap(network)(all_obs)
+policies = jax.nn.softmax(logits, axis=-1)
 
-states = jnp.argmax(obs, axis=-1)
-for s in range(11):
-    m = states == s
-    if m.sum():
-        vals = val[m]
-        pis = data_game["policy"][m].mean(0)
-        stat.add_row(
-            str(s),
-            str(int(m.sum())),
-            f"{float(vals.mean()):.3f}",
-            "  ".join(f"{float(p):.2f}" for p in pis),
-        )
+probe = Table(title="Network value/policy per position", header_style="bold magenta", show_edge=False)
+probe.add_column("pos", justify="right", style="dim")
+probe.add_column("value", justify="right", style="green")
+probe.add_column("policy (L / R / stay)", justify="left")
 
-console.print(stat)
+for s in range(N):
+    probe.add_row(
+        str(s),
+        f"{float(values[s]):.3f}",
+        "  ".join(f"{float(p):.2f}" for p in policies[s]),
+    )
+console.print(probe)
