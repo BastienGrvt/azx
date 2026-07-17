@@ -51,7 +51,7 @@ def _rollout(
     discounts = discount ** jnp.arange(n_step)
     score = (reward * discounts[:, None]).sum(axis=0)
     # Length
-    length = jnp.argmax(terminated, axis=0) + 1
+    length = jnp.where(success, jnp.argmax(terminated, axis=0) + 1, -1)
     # Mean values
     mean_success = success.mean()
     mean_score  = score.mean()
@@ -72,7 +72,7 @@ def _rollout(
 def evaluate(
     env, network, recurrent_fn, key,
     n_batch, n_step, num_sim,
-    discount=1.0, temperature=0.0, dirichlet_fraction=0.0, dirichlet_alpha=0.3,
+    discount, temperature, dirichlet_fraction, dirichlet_alpha,
 ):
     metrics = _rollout(
         env=env, network=network,
