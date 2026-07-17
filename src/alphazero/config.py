@@ -31,6 +31,10 @@ class ConfigTrain:
     n_update: int = 8
     n_minibatch: int = 16
     c_value: float = 1.0
+    
+    @property
+    def N(self):
+        return self.n_roll * self.n_step * self.n_batch
 
     def __post_init__(self):
         if isinstance(self.mcts, dict):

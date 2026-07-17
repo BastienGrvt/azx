@@ -1,8 +1,9 @@
 # Debug
 from .selfplay import selfplay
-from .train import update_step, train_iter
+from .train import train_iter
 from .search import search, make_recurrent_fn
 from .evaluate import evaluate
+from .update import update_iter
 
 # Public
 from .config import Meta, MctsEngine, ConfigTrain, ConfigEval, ConfigAgent

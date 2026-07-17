@@ -1,17 +1,6 @@
 """
-ToDo: new comment header version
+ToDo: new comment header
 
-MCTS search: the root-eval + tree-search core shared by self-play and evaluation.
-
-The only difference between training and eval is what the CALLER does with the
-output (sample vs argmax, collect targets vs accumulate reward). The search
-itself -- root network eval, illegal masking, mctx tree search -- lives here,
-written once.
-
-state -> network(obs) -> (prior, value) -> mctx.muzero_policy -> PolicyOutput
-The returned PolicyOutput carries both:
-  .action          sampled action (exploration, used by self-play)
-  .action_weights  visit distribution (policy target; argmax for greedy eval)
 """
 
 import jax

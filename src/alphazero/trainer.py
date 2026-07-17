@@ -8,6 +8,7 @@ from pathlib import Path
 import json, dataclasses, time
 
 # GPU package
+from alphazero.update import update_iter
 import jax, jax.numpy as jnp
 import equinox as eqx
 import optax
@@ -17,10 +18,11 @@ from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
 # AlphaZero packages
-from .config import Meta, ConfigTrain, ConfigEval, MctsEngine
+from .config import Meta, ConfigTrain, ConfigEval
 from .train import train_iter, collect
 from .evaluate import evaluate
 from .search import make_recurrent_fn
+from .update import update_iter
 
 
 
@@ -57,6 +59,7 @@ class Trainer:
         self.config_train = config_train
         self.config_eval = config_eval
         self.dir_save = Path(dir_save)
+        self._check_minibatch_modulo()
         # Build the reciep
         self.optimizer = _OPT[config_train.optimizer](**config_train.optimizer_kwargs)
         self.recurrent_fn_train = make_recurrent_fn(env, discount=config_train.mcts.discount)
@@ -202,36 +205,8 @@ class Trainer:
             if start == 0:
                 self.checkpoint(dir_save, label="init")
 
-            # ===== WARMUP =====
             if verbose:
-                with console.status("[bold cyan]Compiling XLA graph...", spinner="dots"):
-                    tic_warm = time.perf_counter()
-                    key_train, key_warm = jax.random.split(s.key_train)
-                    warm = collect(
-                        env=self.env, network=s.network, recurrent_fn=self.recurrent_fn_train,
-                        key=key_warm,
-                        n_roll=ct.n_roll, n_batch=ct.n_batch, n_step=ct.n_step, num_sim=ct.mcts.num_sim,
-                        discount=ct.mcts.discount,
-                        temperature=ct.mcts.temperature,
-                        dirichlet_fraction=ct.mcts.dirichlet_fraction,
-                        dirichlet_alpha=ct.mcts.dirichlet_alpha,
-                    )
-                    jax.block_until_ready(warm)
-                    del warm
-                    if eval:
-                        key_eval, key_warm_eval = jax.random.split(s.key_eval)
-                        warm_eval = evaluate(
-                            env=self.env, network=s.network, recurrent_fn=self.recurrent_fn_eval,
-                            key=key_warm_eval,
-                            n_batch=ce.n_batch, n_step=ce.n_step, num_sim=ce.mcts.num_sim,
-                            discount=ce.mcts.discount,
-                            temperature=ce.mcts.temperature,
-                            dirichlet_fraction=ce.mcts.dirichlet_fraction,
-                            dirichlet_alpha=ce.mcts.dirichlet_alpha,
-                        )
-                        jax.block_until_ready(warm_eval)
-                        del warm_eval
-                console.print(f"[green]✓ Compiled in {time.perf_counter() - tic_warm:.1f}s")
+                self._warmup(s.key_train, s.key_eval, eval, console)
 
             # ===== TRAINING LOOP =====
             progress = Progress(
@@ -324,12 +299,12 @@ class Trainer:
 
                     # --- Per-iter print ---
                     if verbose:
-                        last = log["logs_nn"][-1]
+                        log_nn_mean = log["logs_nn_mean"]
                         progress.console.print(
                             f"[dim]iter {idx_iter:3d}[/dim]  "
-                            f"loss=[bold]{last['loss']:.4f}[/bold]  "
-                            f"policy={last['policy_loss']:.4f}  "
-                            f"value={last['value_loss']:.4f}  "
+                            f"loss=[bold]{log_nn_mean['loss']:.4f}[/bold]  "
+                            f"policy={log_nn_mean['policy_loss']:.4f}  "
+                            f"value={log_nn_mean['value_loss']:.4f}  "
                             f"val_mean={log['value_mean']:.3f}  "
                             f"[dim]|[/dim]  "
                             f"[cyan]roll {log['time_roll']:4.1f}s[/cyan]  "
@@ -353,4 +328,78 @@ class Trainer:
             return self.logs
 
 
+
+
+    def _warmup(self, key_train, key_eval, eval, console):
+            """
+            Warmup to compile XLA graphs (self-play, network update, optional eval).
+            """
+            ct, ce = self.config_train, self.config_eval
+            s = self.trainer_state
+            tic_warm = time.perf_counter()
+
+            # --- self-play graph ---
+            with console.status("[bold cyan]Compiling XLA graph for self-play...", spinner="dots"):
+                _, key_warm = jax.random.split(key_train)
+                warm = collect(
+                    env=self.env, network=s.network, recurrent_fn=self.recurrent_fn_train,
+                    key=key_warm,
+                    n_roll=ct.n_roll, n_batch=ct.n_batch, n_step=ct.n_step, num_sim=ct.mcts.num_sim,
+                    discount=ct.mcts.discount,
+                    temperature=ct.mcts.temperature,
+                    dirichlet_fraction=ct.mcts.dirichlet_fraction,
+                    dirichlet_alpha=ct.mcts.dirichlet_alpha,
+                )
+                jax.block_until_ready(warm)
+
+            # --- network-update graph ---
+            with console.status("[bold cyan]Compiling XLA graph for network update...", spinner="dots"):
+                # N = warm["value"].shape[0]
+                size_minibatch = ct.N // ct.n_minibatch
+                _, key_warm_upd = jax.random.split(key_warm)
+                warm_upd = update_iter(
+                    s.network, s.opt_state, warm, self.optimizer, key_warm_upd,
+                    ct.n_update, ct.n_minibatch, size_minibatch, ct.c_value,
+                )
+                jax.block_until_ready(warm_upd)
+                del warm_upd
+
+            del warm
+
+            # --- eval graph ---
+            if eval:
+                with console.status("[bold cyan]Compiling XLA graph for eval...", spinner="dots"):
+                    _, key_warm_eval = jax.random.split(key_eval)
+                    warm_eval = evaluate(
+                        env=self.env, network=s.network, recurrent_fn=self.recurrent_fn_eval,
+                        key=key_warm_eval,
+                        n_batch=ce.n_batch, n_step=ce.n_step, num_sim=ce.mcts.num_sim,
+                        discount=ce.mcts.discount,
+                        temperature=ce.mcts.temperature,
+                        dirichlet_fraction=ce.mcts.dirichlet_fraction,
+                        dirichlet_alpha=ce.mcts.dirichlet_alpha,
+                    )
+                    jax.block_until_ready(warm_eval)
+                    del warm_eval
+
+            console.print(f"[green]✓ Compiled in {time.perf_counter() - tic_warm:.1f}s")
+
+
+    def _check_minibatch_modulo(self):
+            """
+            Warn if n_minibatch does not divide N = n_roll * n_step * n_batch
+            The leftover N % n_minibatch samples are dropped on every update
+            """
+            ct = self.config_train
+            N = ct.n_roll * ct.n_step * ct.n_batch
+            rem = N % ct.n_minibatch
+            if rem != 0:
+                size_minibatch = N // ct.n_minibatch
+                Console().print(
+                    f"[yellow]⚠ n_minibatch={ct.n_minibatch} does not divide N={N} "
+                    f"(n_roll·n_step·n_batch).[/yellow]  "
+                    f"size_minibatch={size_minibatch}, "
+                    f"[bold]{rem}[/bold] samples dropped per update "
+                    f"([dim]{100 * rem / N:.2f}% of data[/dim])."
+                )
 

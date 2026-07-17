@@ -69,27 +69,3 @@ print(f"\ndone in {time.perf_counter() - t0:.1f}s — {len(logs)} iterations log
 
 
 
-
-
-# --- Resume from checkpoint 3 ---
-resume = True
-if resume:
-    print("\n\n")
-    print("====== RESUME from checkpoint 3 ======")
-    print("\n")
-
-    trainer_resumed = Trainer.resume(
-        dir_save="runs/overfit_toy",
-        env=my_env,
-        network_fn=make_network,
-        label="3",
-    )
-    print(f"resumed at idx_iter = {int(trainer_resumed.trainer_state.idx_iter)}  "
-          f"({len(trainer_resumed.logs)} logs restored)")
-
-    t0 = time.perf_counter()
-    logs_resumed = trainer_resumed.fit(
-        eval=True, eval_every=1, checkpoint=True, checkpoint_every=1, verbose=True
-    )
-    print(f"\nresume done in {time.perf_counter() - t0:.1f}s — "
-          f"{len(logs_resumed)} total iterations logged")
