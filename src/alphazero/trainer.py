@@ -1,128 +1,356 @@
 """
-Trainer: orchestration class wrapping train / evaluate / save / load.
+Trainer: orchestration class wrapping train / save / load.
 
-Owns the mutable training state (network, opt_state) and the single source of
-truth for hyperparameters (AZConfig). `recurrent_fn` is DERIVED from
-config.discount here -> no double source of truth on discount.
-
-Scope (v1): pure training + evaluation + checkpointing. Periodic eval,
-best-model tracking and inference (`act`) are left to the calling script.
 """
 
-import json
-import dataclasses
-from dataclasses import dataclass
+# System package
 from pathlib import Path
+import json, dataclasses, time
 
-import jax
+# GPU package
+import jax, jax.numpy as jnp
 import equinox as eqx
 import optax
 
-from .search import make_recurrent_fn
-from .train import train
+# Rich package
+from rich.console import Console
+from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
+
+# AlphaZero packages
+from .config import Meta, ConfigTrain, ConfigEval, MctsEngine
+from .train import train_iter, collect
 from .evaluate import evaluate
+from .search import make_recurrent_fn
 
 
-@dataclass
-class AZConfig:
-    # --- Rng ----
-    seed: int = 42
-    # --- optimizer ---
-    lr: float = 1e-2
-    # --- rollout / training ---
-    discount: float = 0.9
-    n_iter: int = 5
-    n_roll: int = 4
-    n_update: int = 8
-    n_minibatch: int = 16
-    n_batch: int = 4096
-    n_step: int = 32
-    num_sim: int = 16
-    c_value: float = 1.0
-    # --- policy (flat kwargs; policy_config refactor deferred) ---
-    temperature: float = 1.0
-    dirichlet_fraction: float = 0.25
-    dirichlet_alpha: float = 0.3
+
+_OPT = {"adam": optax.adam, "sgd": optax.sgd, "adamw": optax.adamw}
+
+
+# Logs already jsonable (no JAX objects)
+
+# def _to_jsonable(x):
+#     if isinstance(x, (np.floating, np.integer)): return x.item()
+#     if hasattr(x, "item"): return x.item()
+#     if hasattr(x, "tolist"): return x.tolist()
+#     raise TypeError(f"not JSON serializable: {type(x)}")
+
+def _to_jsonable(x):
+    return x
+
+
+
+class TrainerState(eqx.Module):
+    network: eqx.Module
+    opt_state: optax.OptState
+    key_train: jax.Array
+    key_eval: jax.Array
+    idx_iter: jax.Array
 
 
 class Trainer:
-    """Stateful orchestrator: `fit` mutates (network, opt_state); everything
-    else reads the current state."""
 
-    def __init__(self, env, network, config: AZConfig):
+    def __init__(self, meta, env, network_fn, config_train, config_eval, dir_save):
+        self.meta = meta
         self.env = env
-        self.network = network  # built by the caller, injected here
-        self.config = config
-        self.key = 
-        self.optimizer = optax.adam(config.lr)
-        self.opt_state = self.optimizer.init(eqx.filter(self.network, eqx.is_array))
-        self.recurrent_fn = make_recurrent_fn(env, discount=config.discount)
+        self.network_fn = network_fn
+        self.config_train = config_train
+        self.config_eval = config_eval
+        self.dir_save = Path(dir_save)
+        # Build the reciep
+        self.optimizer = _OPT[config_train.optimizer](**config_train.optimizer_kwargs)
+        self.recurrent_fn_train = make_recurrent_fn(env, discount=config_train.mcts.discount)
+        self.recurrent_fn_eval = make_recurrent_fn(env, discount=config_eval.mcts.discount)
+        # Mutable state
+        self.trainer_state = None
+        self.logs = []
 
-    # ---- pure training: mutates internal state, returns logs ----
-    def fit(self, verbose: bool = True):
-        c = self.config
-        self.key, train_key = jax.random.split(self.key)
-        self.network, self.opt_state, logs = train(
-            env=self.env,
-            network=self.network,
-            recurrent_fn=self.recurrent_fn,
-            optimizer=self.optimizer,
-            opt_state=self.opt_state,
-            key=train_key,
-            n_iter=c.n_iter,
-            n_roll=c.n_roll,
-            n_update=c.n_update,
-            n_minibatch=c.n_minibatch,
-            n_batch=c.n_batch,
-            n_step=c.n_step,
-            num_sim=c.num_sim,
-            discount=c.discount,
-            temperature=c.temperature,
-            dirichlet_fraction=c.dirichlet_fraction,
-            dirichlet_alpha=c.dirichlet_alpha,
-            c_value=c.c_value,
-            verbose=verbose,
+    def init(self):
+        # Key management
+        # ToDo: manage new jax.random key generation (used old PRNGKey to avoid equinox save conflict)
+        key_train = jax.random.PRNGKey(self.config_train.seed)
+        key_eval = jax.random.PRNGKey(self.config_eval.seed)
+        # Setup fresh network and optimizer
+        _, key_net = jax.random.split(key_train)
+        network = self.network_fn(self.env, key_net)
+        opt_state = self.optimizer.init(eqx.filter(network, eqx.is_array))
+        # Set the initial State
+        self.trainer_state = TrainerState(
+            network=network,
+            opt_state=opt_state,
+            key_train=key_train,
+            key_eval=key_eval,
+            idx_iter=jnp.array(0, dtype=jnp.int32),
         )
-        return logs
+        self.logs = []
+        return self
 
-    # ---- greedy evaluation (temperature=0, no exploration noise) ----
-    def evaluate(self, key=None, n_batch=None, n_step=None, num_sim=None):
-        c = self.config
-        if key is None:
-            self.key, key = jax.random.split(self.key)
-        return evaluate(
-            env=self.env,
-            network=self.network,
-            recurrent_fn=self.recurrent_fn,
-            key=key,
-            n_batch=n_batch if n_batch is not None else c.n_batch,
-            n_step=n_step if n_step is not None else c.n_step,
-            num_sim=num_sim if num_sim is not None else c.num_sim,
-            discount=1.0,
-            temperature=0.0,
-            dirichlet_fraction=0.0,
-            dirichlet_alpha=c.dirichlet_alpha,
-        )
+    def save(self, dir_save=None):
+        # Dir management
+        dir_save = Path(dir_save) if dir_save is not None else self.dir_save
+        dir_save.mkdir(parents=True, exist_ok=True)
+        # Save metadata
+        with open(dir_save / "meta.json", "w") as f:
+            json.dump(dataclasses.asdict(self.meta), f, indent=2)
+        # Save configs
+        with open(dir_save / "configs.json", "w") as f:
+            json.dump({
+                "train": dataclasses.asdict(self.config_train),
+                "eval": dataclasses.asdict(self.config_eval),
+            }, f, indent=2)
+        # Save the logs
+        with open(dir_save / "logs.json", "w") as f:
+            json.dump(self.logs, f, indent=2, default=_to_jsonable)
+        # Save the network
+        eqx.tree_serialise_leaves(dir_save / "network.eqx", self.trainer_state.network)
 
-    # ---- checkpointing: dir with model.eqx (net+opt) + config.json ----
-    def save(self, path):
-        path = Path(path)
-        path.mkdir(parents=True, exist_ok=True)
-        # net + opt_state together -> allows resuming training mid-run
-        eqx.tree_serialise_leaves(path / "model.eqx", (self.network, self.opt_state))
-        with open(path / "config.json", "w") as f:
-            json.dump(dataclasses.asdict(self.config), f, indent=2)
+    def checkpoint(self, dir_save=None, label=None):
+        # Dir management
+        dir_save = Path(dir_save) if dir_save is not None else self.dir_save
+        name = label if label is not None else str(int(self.trainer_state.idx_iter))
+        dir_checkpoint = dir_save / "checkpoints" / f"checkpoint_{name}"
+        dir_checkpoint.mkdir(parents=True, exist_ok=True)
+        # Save the checkpoint (state and logs)
+        eqx.tree_serialise_leaves(dir_checkpoint / "state.eqx", self.trainer_state)
+        with open(dir_checkpoint / "logs.json", "w") as f:
+            json.dump(self.logs, f, indent=2, default=_to_jsonable)
 
     @classmethod
-    def load(cls, path, env, network, key=None):
-        # `network` is a template with the right STRUCTURE (built by the caller,
-        # same as at __init__); its weights get overwritten by the checkpoint.
-        path = Path(path)
-        with open(path / "config.json") as f:
-            config = AZConfig(**json.load(f))
+    def resume(cls, dir_save, env, network_fn, label="end", verbose=True):
+        # Dir management
+        dir_save = Path(dir_save)
+        dir_checkpoint = dir_save / "checkpoints" / f"checkpoint_{label}"
+        if not dir_checkpoint.exists():
+            raise FileNotFoundError(f"No checkpoint to resume: {dir_checkpoint}")
 
-        self = cls(env, network, config, key if key is not None else jax.random.key(0))
-        self.network, self.opt_state = eqx.tree_deserialise_leaves(
-            path / "model.eqx", (self.network, self.opt_state)
-        )
+        # Get Metadata and configs
+        with open(dir_save / "meta.json") as f:
+            meta = Meta(**json.load(f))
+        with open(dir_save / "configs.json") as f:
+            config = json.load(f)
+
+        # Build a fesh trainer
+        config_train = ConfigTrain(**config["train"])
+        config_eval = ConfigEval(**config["eval"])
+        self = cls(meta, env, network_fn, config_train, config_eval, dir_save)
+        self.init()
+
+        # Resume the state and the logs
+        self.trainer_state = eqx.tree_deserialise_leaves(dir_checkpoint / "state.eqx", self.trainer_state)
+        with open(dir_checkpoint / "logs.json") as f:
+            self.logs = json.load(f)
+
+        # Verbose
+        if verbose:
+            idx = int(self.trainer_state.idx_iter)
+            Console().print(
+                f"[green]✓ Resumed[/green] from [bold]checkpoint_{label}[/bold]  "
+                f"[dim]|[/dim]  iter=[bold]{idx}[/bold]/{config_train.n_iter}  "
+                f"[dim]|[/dim]  {len(self.logs)} logs restored  "
+                f"[dim]|[/dim]  {dir_checkpoint}"
+            )
         return self
+
+
+    @classmethod
+    def load(cls, dir_save, env, network_fn):
+        # Dir management
+        dir_save = Path(dir_save)
+        network_path = dir_save / "network.eqx"
+        if not network_path.exists():
+            raise FileNotFoundError(f"No agent to load: {network_path}")
+
+        # Get Metadata and configs
+        with open(dir_save / "configs.json") as f:
+            config = json.load(f)
+        with open(dir_save / "meta.json") as f:
+            meta = Meta(**json.load(f))
+
+        # Build a fesh trainer
+        config_train = ConfigTrain(**config["train"])
+        config_eval = ConfigEval(**config["eval"])
+        self = cls(meta, env, network_fn, config_train, config_eval, dir_save)
+        self.init()
+
+        # Restore the neural network
+        network = eqx.tree_deserialise_leaves(network_path, self.trainer_state.network)
+        self.trainer_state = eqx.tree_replace(self.trainer_state, network=network)
+        return self
+
+
+    def fit(self, dir_save=None, checkpoint=True, checkpoint_every=1, eval=False, eval_every=1, verbose=True):
+            """
+            Orchestrate n_iter training iterations (mutates self.trainer_state).
+              - init disk (meta/configs) + checkpoint_init
+              - one-time XLA warmup
+              - loop: train_iter -> optional greedy eval -> log -> periodic checkpoint
+              - end: checkpoint_end + save root artifact (network/logs)
+            Returns the accumulated logs.
+            """
+            ct, ce = self.config_train, self.config_eval
+            dir_save = Path(dir_save) if dir_save is not None else self.dir_save
+            console = Console()
+            s = self.trainer_state
+            start = int(s.idx_iter)
+
+            # ===== INIT SAVE =====
+            dir_save.mkdir(parents=True, exist_ok=True)
+            with open(dir_save / "meta.json", "w") as f:
+                json.dump(dataclasses.asdict(self.meta), f, indent=2)
+            with open(dir_save / "configs.json", "w") as f:
+                json.dump({"train": dataclasses.asdict(ct), "eval": dataclasses.asdict(ce)}, f, indent=2)
+            if start == 0:
+                self.checkpoint(dir_save, label="init")
+
+            # ===== WARMUP =====
+            if verbose:
+                with console.status("[bold cyan]Compiling XLA graph...", spinner="dots"):
+                    tic_warm = time.perf_counter()
+                    key_train, key_warm = jax.random.split(s.key_train)
+                    warm = collect(
+                        env=self.env, network=s.network, recurrent_fn=self.recurrent_fn_train,
+                        key=key_warm,
+                        n_roll=ct.n_roll, n_batch=ct.n_batch, n_step=ct.n_step, num_sim=ct.mcts.num_sim,
+                        discount=ct.mcts.discount,
+                        temperature=ct.mcts.temperature,
+                        dirichlet_fraction=ct.mcts.dirichlet_fraction,
+                        dirichlet_alpha=ct.mcts.dirichlet_alpha,
+                    )
+                    jax.block_until_ready(warm)
+                    del warm
+                    if eval:
+                        key_eval, key_warm_eval = jax.random.split(s.key_eval)
+                        warm_eval = evaluate(
+                            env=self.env, network=s.network, recurrent_fn=self.recurrent_fn_eval,
+                            key=key_warm_eval,
+                            n_batch=ce.n_batch, n_step=ce.n_step, num_sim=ce.mcts.num_sim,
+                            discount=ce.mcts.discount,
+                            temperature=ce.mcts.temperature,
+                            dirichlet_fraction=ce.mcts.dirichlet_fraction,
+                            dirichlet_alpha=ce.mcts.dirichlet_alpha,
+                        )
+                        jax.block_until_ready(warm_eval)
+                        del warm_eval
+                console.print(f"[green]✓ Compiled in {time.perf_counter() - tic_warm:.1f}s")
+
+            # ===== TRAINING LOOP =====
+            progress = Progress(
+                TextColumn("[bold blue]iter {task.completed}/{task.total}"),
+                BarColumn(), TimeElapsedColumn(), TimeRemainingColumn(),
+                console=console, disable=not verbose,
+            )
+            with progress:
+                task = progress.add_task("train", total=ct.n_iter, completed=start)
+                for idx_iter in range(start, ct.n_iter):
+                    tic_iter = time.perf_counter()
+
+                    # --- Get the current state ---
+                    s = self.trainer_state
+
+                    # --- Key management ---
+                    key_train, subkey_train = jax.random.split(s.key_train)
+                    key_eval, subkey_eval = jax.random.split(s.key_eval)
+
+                    # --- Training ---
+                    log = None
+                    network, opt_state, log = train_iter(
+                        # Trainer params
+                        env=self.env,
+                        recurrent_fn=self.recurrent_fn_train,
+                        optimizer=self.optimizer,
+                        # Trainer state params
+                        network=s.network,
+                        opt_state=s.opt_state,
+                        key=subkey_train,
+                        # Config params
+                        n_roll=ct.n_roll,
+                        n_update=ct.n_update,
+                        n_minibatch=ct.n_minibatch,
+                        n_batch=ct.n_batch,
+                        n_step=ct.n_step,
+                        num_sim=ct.mcts.num_sim,
+                        discount=ct.mcts.discount,
+                        c_value=ct.c_value,
+                        temperature=ct.mcts.temperature,
+                        dirichlet_fraction=ct.mcts.dirichlet_fraction,
+                        dirichlet_alpha=ct.mcts.dirichlet_alpha,
+                    )
+                    log["idx_iter"] = idx_iter
+
+                    # --- Evaluation ---
+                    eval_metrics = None
+                    if eval and ((idx_iter % eval_every == 0) or (idx_iter == ct.n_iter - 1)):
+                        tic_eval = time.perf_counter()
+                        with progress.console.status("[cyan]evaluating...", spinner="dots"):
+                            metrics = evaluate(
+                                # Trainer params
+                                env=self.env,
+                                recurrent_fn=self.recurrent_fn_eval,
+                                network=network,
+                                key=subkey_eval,
+                                # Config params
+                                n_batch=ce.n_batch,
+                                n_step=ce.n_step,
+                                num_sim=ce.mcts.num_sim,
+                                discount=ce.mcts.discount,
+                                temperature=ce.mcts.temperature,
+                                dirichlet_fraction=ce.mcts.dirichlet_fraction,
+                                dirichlet_alpha=ce.mcts.dirichlet_alpha,
+                            )
+                            jax.block_until_ready(metrics)
+                        eval_metrics = {
+                            "success": float(metrics["mean_success"]),
+                            "score":   float(metrics["mean_score"]),
+                            "length":  float(metrics["mean_length"]),
+                            "time_eval": time.perf_counter() - tic_eval,
+                        }
+                    log["eval"] = eval_metrics
+                    log["time_iter"] = time.perf_counter() - tic_iter
+                    self.logs.append(log)
+
+                    # --- Commit new state ---
+                    self.trainer_state = TrainerState(
+                        network=network,
+                        opt_state=opt_state,
+                        key_train=key_train,
+                        key_eval=key_eval,
+                        idx_iter=jnp.array(idx_iter + 1, dtype=jnp.int32),
+                    )
+
+
+                    # --- Checkpoint ---
+                    if checkpoint and ((idx_iter + 1) % checkpoint_every == 0):
+                        self.checkpoint(dir_save, label=str(idx_iter + 1))
+
+                    # --- Per-iter print ---
+                    if verbose:
+                        last = log["logs_nn"][-1]
+                        progress.console.print(
+                            f"[dim]iter {idx_iter:3d}[/dim]  "
+                            f"loss=[bold]{last['loss']:.4f}[/bold]  "
+                            f"policy={last['policy_loss']:.4f}  "
+                            f"value={last['value_loss']:.4f}  "
+                            f"val_mean={log['value_mean']:.3f}  "
+                            f"[dim]|[/dim]  "
+                            f"[cyan]roll {log['time_roll']:4.1f}s[/cyan]  "
+                            f"[yellow]upd {log['time_updates']:4.1f}s[/yellow]  "
+                            f"[dim]tot {log['time_iter']:4.1f}s[/dim]"
+                        )
+                        if eval_metrics is not None:
+                            progress.console.print(
+                                f"          [green]└─ eval[/green]  "
+                                f"succ=[bold green]{eval_metrics['success']:.2f}[/bold green]  "
+                                f"score={eval_metrics['score']:.3f}  "
+                                f"len={eval_metrics['length']:.1f}  "
+                                f"[dim]|[/dim]  "
+                                f"[magenta]eval {eval_metrics['time_eval']:4.1f}s[/magenta]"
+                            )
+                    progress.update(task, advance=1)
+
+            # ===== FINAL =====
+            self.checkpoint(dir_save, label="end")
+            self.save(dir_save)
+            return self.logs
+
+
+

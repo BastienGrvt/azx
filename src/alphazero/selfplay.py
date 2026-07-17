@@ -34,10 +34,11 @@ def _rollout(
 ):
     init = jax.vmap(env.init)
     step = jax.vmap(auto_reset(env.step, env.init))  # refills terminal slots
-
-    key, sub = jax.random.split(key)
-    keys = jax.random.split(sub, n_batch)
-    state = init(keys)
+    
+    # Initialize the env
+    key, key_sub = jax.random.split(key)
+    keys_init = jax.random.split(key_sub, n_batch)
+    state = init(keys_init)
 
     def body_game(carry, _):
         state, key = carry

@@ -1,0 +1,35 @@
+{
+  "train": {
+    "mcts": {
+      "discount": 0.9,
+      "num_sim": 16,
+      "temperature": 1.0,
+      "dirichlet_fraction": 0.25,
+      "dirichlet_alpha": 0.3
+    },
+    "optimizer": "adam",
+    "optimizer_kwargs": {
+      "learning_rate": 0.02
+    },
+    "seed": 0,
+    "n_iter": 5,
+    "n_roll": 4,
+    "n_batch": 4096,
+    "n_step": 32,
+    "n_update": 8,
+    "n_minibatch": 16,
+    "c_value": 1.0
+  },
+  "eval": {
+    "mcts": {
+      "discount": 1.0,
+      "num_sim": 16,
+      "temperature": 0.0,
+      "dirichlet_fraction": 0.0,
+      "dirichlet_alpha": 0.3
+    },
+    "seed": 0,
+    "n_batch": 4096,
+    "n_step": 32
+  }
+}
