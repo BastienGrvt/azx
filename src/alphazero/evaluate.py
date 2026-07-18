@@ -43,8 +43,8 @@ def _rollout(
     success = terminated.any(axis=0)
     n_success = success.sum()
     # Games score: score = sum_k gama^k * reward
-    discounts = discount ** jnp.arange(n_step)
-    score = (reward * discounts[:, None]).sum(axis=0)
+    discounts_score = discount_score ** jnp.arange(n_step)
+    score = (reward * discounts_score[:, None]).sum(axis=0)
     # Length
     length = jnp.where(success, jnp.argmax(terminated, axis=0) + 1, -1)
     # Mean values

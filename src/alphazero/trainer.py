@@ -9,7 +9,6 @@ from functools import partial
 import json, dataclasses, time
 
 # GPU package
-from alphazero.update import update_iter
 import jax, jax.numpy as jnp
 import equinox as eqx
 import optax
@@ -427,3 +426,28 @@ class Trainer:
                     f"([dim]{100 * rem / N:.2f}% of data[/dim])."
                 )
 
+
+
+    # def _mesh_multi_gpu(self):
+    #     self.mesh = jax.make_mesh((jax.device_count(),), ("batch",), axis_types=(jax.sharding.AxisType.Auto,))
+    #     jax.set_mesh(self.mesh)
+    #     self.shard_data = jax.NamedSharding(self.mesh, jax.P("batch"))
+    #     self._check_sharding_divisibility()
+    #
+    #
+    # def _check_sharding_divisibility(self):
+    #     """
+    #         Hard constraints introduced by data-parallel sharding.
+    #
+    #     """
+    #     ct, ce = self.config_train, self.config_eval
+    #     n_gpu = jax.device_count()
+    #     N = ct.N
+    #     size_minibatch = N // ct.n_minibatch
+    #     problems = []
+    #     if ct.n_batch % n_gpu:        problems.append(f"train n_batch={ct.n_batch} % n_devices={n_gpu}")
+    #     if ce.n_batch % n_gpu:        problems.append(f"eval n_batch={ce.n_batch} % n_devices={n_gpu}")
+    #     if N % ct.n_minibatch:    problems.append(f"N={N} % n_minibatch={ct.n_minibatch}")
+    #     if size_minibatch % n_gpu:    problems.append(f"size_minibatch={size_minibatch} % n_devices={n_gpu}")
+    #     if problems:
+    #         raise ValueError("sharding divisibility violated: " + "; ".join(problems))
