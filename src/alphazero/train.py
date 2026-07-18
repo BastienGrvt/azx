@@ -27,31 +27,32 @@ def make_collect_global(
 
     @partial(
         jax.shard_map, mesh=gpu_mesh,
-        in_specs=(jax.P(), jax.P(gpu_axis)),
+        in_specs=({"network": jax.P(), "key": jax.P(gpu_axis)},),
         out_specs=jax.P(gpu_axis),
         check_vma=False,
     )
-    def collect_local(network, keys):
+    def collect_local(args):
+        network, key = args["network"], args["key"]
         """
         Data collector, does n_roll rollout
         1. Get data from n_roll call of selplay(...)
         2. Merge [n_roll, N, *] -> [N*n_roll, *] with N = B*n_step
         """
         def body_rollout(key, _):
-            key, key_sub = jax.random.split(key)
+            key, subkey_game = jax.random.split(key)
             game = selfplay(
                 env=env,
                 network=network,
                 recurrent_fn=recurrent_fn,
                 search_fn=search_fn,
-                key=key_sub,
+                key=subkey_game,
                 n_batch=n_batch_local,
                 n_step=n_step,
                 discount=discount,
             )
             return key, game
 
-        _, data = jax.lax.scan(body_rollout, keys[0], xs=None, length=n_roll)
+        _, data = jax.lax.scan(body_rollout, key[0], xs=None, length=n_roll)
         # [n_roll, n_step*n_batch_local, *] -> [N_local, *]
         return {k: v.reshape(-1, *v.shape[2:]) for k, v in data.items()}
 
@@ -60,26 +61,27 @@ def make_collect_global(
 
 def make_update_global(
     gpu_mesh, gpu_axis,
-    optimizer, n_update, n_minibatch_local, n_batch_local, n_step, n_roll, c_value,
+    optimizer, n_update, n_minibatch_local, size_minibatch_local, c_value,
 ):
     """
     Build the per-device update step: local shuffle, pmean'd gradients.
     NB: when sharded only array can be pass as argument
     """
 
-    N_local = n_roll * n_step * n_batch_local
-    size_minibatch = N_local // n_minibatch_local
-
     @partial(
         jax.shard_map, mesh=gpu_mesh,
-        in_specs=(jax.P(), jax.P(), jax.P(gpu_axis), jax.P(gpu_axis)),
+        in_specs=({"network": jax.P(), "opt_state": jax.P(), "data_roll": jax.P(gpu_axis), "key": jax.P(gpu_axis)},),
         out_specs=(jax.P(), jax.P(), jax.P()),
         check_vma=False,
     )
-    def update_local(network, opt_state, data_roll, keys):
+    def update_local(args):
+        key, network, data_roll, opt_state = args["key"], args["network"], args["data_roll"], args["opt_state"]
+        """
+        Per-device update: local shuffle, gradients pmean'd across devices
+        """
         return update_iter(
             gpu_axis=gpu_axis,
-            key=keys,
+            key=key[0], # NB: subkeys_update [n_gpu] -(sharp_map)-> key [1] x n_gpu (get key as key not array of key)
             network=network,
             data_roll=data_roll,
             opt_state=opt_state,
@@ -87,7 +89,7 @@ def make_update_global(
             c_value=c_value,
             n_update=n_update,
             n_minibatch=n_minibatch_local,
-            size_minibatch=size_minibatch,
+            size_minibatch=size_minibatch_local,
         )
 
     return update_local
@@ -106,26 +108,26 @@ def train_iter(
     shard_keys = jax.NamedSharding(gpu_mesh, jax.P(gpu_axis))
 
     key_roll, key_update = jax.random.split(key)
-    keys_roll = jax.device_put(jax.random.split(key_roll, n_gpu), shard_keys)
-    keys_update = jax.device_put(jax.random.split(key_update, n_gpu), shard_keys)
+    subkeys_roll = jax.device_put(jax.random.split(key_roll, n_gpu), shard_keys)
+    subkeys_update = jax.device_put(jax.random.split(key_update, n_gpu), shard_keys)
 
-    # --- Collect (data stays sharded on device, no host round-trip) ---
+    # --- Collect self-play data ---
     tic = time.perf_counter()
-    data_roll = collect_global(
-        network=network, 
-        keys=keys_roll,
-    )
+    data_roll = collect_global({
+        "network": network,
+        "key": subkeys_roll,
+    })
     jax.block_until_ready(data_roll)
     tac_roll = time.perf_counter() - tic
 
     # --- Update ---
     tic = time.perf_counter()
-    network, opt_state, logs_nn = update_global(
-        network=network,
-        opt_state=opt_state,
-        data_roll=data_roll,
-        keys=keys_update,
-    )
+    network, opt_state, logs_nn = update_global({
+        "network": network,
+        "opt_state": opt_state,
+        "data_roll": data_roll,
+        "key": subkeys_update,
+    })
     jax.block_until_ready(logs_nn)
     tac_update = time.perf_counter() - tic
 

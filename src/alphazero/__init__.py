@@ -1,9 +1,9 @@
-# Debug
+# Debug / internal
 from .selfplay import selfplay
-from .train import train_iter
 from .search import make_recurrent_fn, make_search_fn
-from .evaluate import evaluate
-from .update import update_iter
+from .update import loss_fn, update_step, update_iter
+from .train import make_collect_global, make_update_global, train_iter
+from .evaluate import make_evaluate_global, evaluate
 
 # Public
 from .config import Meta, MctsEngine, ConfigTrain, ConfigEval, ConfigAgent

@@ -66,7 +66,7 @@ trainer = Trainer(
 trainer = trainer.init()
 
 t0 = time.perf_counter()
-logs = trainer.fit(eval=True, eval_every=1, checkpoint=True, checkpoint_every=1, verbose=True)
+logs = trainer.fit(eval_every=1, checkpoint_every=1, verbose=True)
 print(f"\ndone in {time.perf_counter() - t0:.1f}s \t {len(logs)} iterations logged")
 
 

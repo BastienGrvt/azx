@@ -7,6 +7,7 @@ class Meta:
     net_id: str
     description: str = ""
     created: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    n_gpu: int | None = None
 
 
 @dataclass
