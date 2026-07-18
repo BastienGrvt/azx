@@ -15,4 +15,6 @@ wheels/
 
 # Other
 html/*
+runs/*
+figs/*
 repomix-*
