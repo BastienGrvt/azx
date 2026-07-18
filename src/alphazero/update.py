@@ -30,24 +30,24 @@ def loss_fn(network, data_minibatch, c_value):
     return loss, {"policy_loss": policy_loss, "value_loss": value_loss}
 
 
-@eqx.filter_jit
-def update_step(network, opt_state, data_minibatch, optimizer, c_value):
-    # one gradient step; returns updated network + optimizer state + metrics
+def update_step(network, opt_state, data_minibatch, optimizer, c_value, gpu_axis):
     (loss, loss_dict), grads = loss_fn(network, data_minibatch, c_value)
+    grads = jax.lax.pmean(grads, gpu_axis)
     updates, opt_state = optimizer.update(grads, opt_state, network)
     network = eqx.apply_updates(network, updates)
     return network, opt_state, {"loss": loss, **loss_dict}
 
 @eqx.filter_jit
 def update_iter(
-    network, opt_state, data_roll, optimizer, key_update,
+    gpu_axis,
+    network, opt_state, data_roll, optimizer, key,
     n_update, n_minibatch, size_minibatch, c_value,
 ):
     # Two nested scans: 
     # -> outer over updates (reshuffle each time),
     # -> inner over minibatches (one grad step each)
     N = n_minibatch * size_minibatch
-    subkeys_update = jax.random.split(key_update, n_update)
+    subkeys_update = jax.random.split(key, n_update)
 
     def body_update(carry, subkey_update):
         network, opt_state = carry
@@ -59,7 +59,7 @@ def update_iter(
             network, opt_state = carry
             # Builde the shuffeled data from the permutation indices
             data_mb = {k: v[idx_mb] for k, v in data_roll.items()}
-            network, opt_state, loss = update_step(network, opt_state, data_mb, optimizer, c_value)
+            network, opt_state, loss = update_step(network, opt_state, data_mb, optimizer, c_value, gpu_axis=gpu_axis)
             return (network, opt_state), loss
 
         # Scan over minibatches permutation indices and update neural network

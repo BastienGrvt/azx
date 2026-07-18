@@ -4,8 +4,8 @@ ToDo: comment header
 
 """
 
+from functools import partial
 import jax
-import numpy as np
 import equinox as eqx
 import optax
 import time
@@ -15,87 +15,128 @@ from .update import update_iter
 
 
 
-
-# ---- n_roll selfplay rounds, agregating data ----
-@eqx.filter_jit
-def collect(
-    env, network, recurrent_fn, search_fn, key, 
-    n_roll, n_batch, n_step,
-    discount,
+def make_collect_global(
+    gpu_mesh, gpu_axis,
+    env, recurrent_fn, search_fn,
+    n_roll, n_batch_local, n_step, discount,
 ):
     """
-    Data collector, does n_roll rollout
-    1. Get data from n_roll call of selplay(...)
-    2. Merge [n_roll, N, *] -> [N*n_roll, *] with N = B*n_step
+    Build the per-device data collector: n_roll rollouts on the local batch.
+    NB: when sharded only array can be pass as argument
     """
 
-    def body_rollout(key, _):
-        key, key_sub = jax.random.split(key)
-        game = selfplay(
-            env=env,
+    @partial(
+        jax.shard_map, mesh=gpu_mesh,
+        in_specs=(jax.P(), jax.P(gpu_axis)),
+        out_specs=jax.P(gpu_axis),
+        check_vma=False,
+    )
+    def collect_local(network, keys):
+        """
+        Data collector, does n_roll rollout
+        1. Get data from n_roll call of selplay(...)
+        2. Merge [n_roll, N, *] -> [N*n_roll, *] with N = B*n_step
+        """
+        def body_rollout(key, _):
+            key, key_sub = jax.random.split(key)
+            game = selfplay(
+                env=env,
+                network=network,
+                recurrent_fn=recurrent_fn,
+                search_fn=search_fn,
+                key=key_sub,
+                n_batch=n_batch_local,
+                n_step=n_step,
+                discount=discount,
+            )
+            return key, game
+
+        _, data = jax.lax.scan(body_rollout, keys[0], xs=None, length=n_roll)
+        # [n_roll, n_step*n_batch_local, *] -> [N_local, *]
+        return {k: v.reshape(-1, *v.shape[2:]) for k, v in data.items()}
+
+    return collect_local
+
+
+def make_update_global(
+    gpu_mesh, gpu_axis,
+    optimizer, n_update, n_minibatch_local, n_batch_local, n_step, n_roll, c_value,
+):
+    """
+    Build the per-device update step: local shuffle, pmean'd gradients.
+    NB: when sharded only array can be pass as argument
+    """
+
+    N_local = n_roll * n_step * n_batch_local
+    size_minibatch = N_local // n_minibatch_local
+
+    @partial(
+        jax.shard_map, mesh=gpu_mesh,
+        in_specs=(jax.P(), jax.P(), jax.P(gpu_axis), jax.P(gpu_axis)),
+        out_specs=(jax.P(), jax.P(), jax.P()),
+        check_vma=False,
+    )
+    def update_local(network, opt_state, data_roll, keys):
+        return update_iter(
+            gpu_axis=gpu_axis,
+            key=keys,
             network=network,
-            recurrent_fn=recurrent_fn,
-            search_fn=search_fn,
-            key=key_sub,
-            n_batch=n_batch,
-            n_step=n_step,
-            discount=discount, 
+            data_roll=data_roll,
+            opt_state=opt_state,
+            optimizer=optimizer,
+            c_value=c_value,
+            n_update=n_update,
+            n_minibatch=n_minibatch_local,
+            size_minibatch=size_minibatch,
         )
-        return key, game
-    
-    _, data_roll = jax.lax.scan(body_rollout, key, xs=None, length=n_roll)
-    out = {item: data.reshape(-1, *data.shape[2:]) for item, data in data_roll.items()}
 
-    return out
+    return update_local
 
-# ---- AlphaZero training loop ----
 
 def train_iter(
-    env, network, key,
-    recurrent_fn, search_fn,
-    optimizer, opt_state,
-    n_roll, n_update, n_minibatch, n_batch, n_step,
-    discount, c_value,
-):
+        gpu_mesh, gpu_axis,
+        collect_global, update_global, 
+        network, opt_state, key
+    ):
+    """
+    Host-side wrapper: two sharded calls, timed separately.
+    """
+    # --- Init parallelization ---
+    n_gpu = gpu_mesh.shape[gpu_axis]
+    shard_keys = jax.NamedSharding(gpu_mesh, jax.P(gpu_axis))
+
     key_roll, key_update = jax.random.split(key)
-    log = {}
+    keys_roll = jax.device_put(jax.random.split(key_roll, n_gpu), shard_keys)
+    keys_update = jax.device_put(jax.random.split(key_update, n_gpu), shard_keys)
 
-    # --- Data collection ---
-    tic_roll = time.perf_counter()
-    data_roll = collect(
-        env=env, network=network,
-        recurrent_fn=recurrent_fn,
-        search_fn=search_fn,
-        key=key_roll,
-        n_roll=n_roll,
-        n_batch=n_batch,
-        n_step=n_step,
-        discount=discount,
+    # --- Collect (data stays sharded on device, no host round-trip) ---
+    tic = time.perf_counter()
+    data_roll = collect_global(
+        network=network, 
+        keys=keys_roll,
     )
-    jax.block_until_ready(data_roll)  # accurate roll timing
-    tac_roll = time.perf_counter() - tic_roll
+    jax.block_until_ready(data_roll)
+    tac_roll = time.perf_counter() - tic
 
-    # --- Mini-batch setup ---
-    N = data_roll["value"].shape[0]
-    size_minibatch = N // n_minibatch
-
-    # --- Neural network updates (single jitted call) ---
-    tic_updates = time.perf_counter()
-    network, opt_state, logs_nn = update_iter(
-        network, opt_state, data_roll, optimizer, key_update,
-        n_update, n_minibatch, size_minibatch, c_value,
+    # --- Update ---
+    tic = time.perf_counter()
+    network, opt_state, logs_nn = update_global(
+        network=network,
+        opt_state=opt_state,
+        data_roll=data_roll,
+        keys=keys_update,
     )
     jax.block_until_ready(logs_nn)
-    logs_nn = jax.device_get(logs_nn)  
-    tac_updates = time.perf_counter() - tic_updates
+    tac_update = time.perf_counter() - tic
 
-    # --- Save log of the iteration ---
-    log["time_roll"] = tac_roll
-    log["value_mean"] = float(data_roll["value"].mean())
-    log["time_updates"] = tac_updates
-    log["logs_nn"] = {k: v.tolist() for k, v in logs_nn.items()}
-    log["logs_nn_mean"] = {k: float(v.mean()) for k, v in logs_nn.items()}
+    # --- Metrics ---
+    logs_nn = jax.device_get(logs_nn)
+    log = {
+        "time_roll": tac_roll,
+        "time_updates": tac_update,
+        "value_mean": float(data_roll["value"].mean()),
+        "logs_nn": {k: v.tolist() for k, v in logs_nn.items()},
+        "logs_nn_mean": {k: float(v.mean()) for k, v in logs_nn.items()},
+    }
     return network, opt_state, log
-
-
 

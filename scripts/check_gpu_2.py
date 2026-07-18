@@ -14,6 +14,7 @@ import jax
 import jax.numpy as jnp
 import equinox as eqx
 import optax
+import numpy as np
 
 from env import EnvToy
 from net import NetToy
@@ -32,8 +33,7 @@ network = NetToy(env.observation_shape, env.num_actions, key=jax.random.PRNGKey(
 optimizer = optax.adam(1e-2)
 opt_state = optimizer.init(eqx.filter(network, eqx.is_array))
 recurrent_fn = make_recurrent_fn(env, discount=DISCOUNT)
-search_fn = make_search_fn(kind="muzero", num_sim=N_SIM,
-                           temperature=1.0, dirichlet_fraction=0.25, dirichlet_alpha=0.3)
+search_fn = make_search_fn(kind="muzero", num_sim=N_SIM, temperature=1.0, dirichlet_fraction=0.25, dirichlet_alpha=0.3)
 
 # Local sizes: everything inside the envelope is per-device
 n_batch_local = N_BATCH // n_gpu
@@ -45,7 +45,8 @@ size_minibatch = N_local // n_minibatch_local
 @partial(jax.shard_map, mesh=mesh,
          in_specs=(jax.P(), jax.P(), jax.P("batch")),
          out_specs=(jax.P(), jax.P(), jax.P()),
-         check_vma=False)
+         check_vma=False
+    )
 def train_local(network, opt_state, keys):
     # per-device: rollout on local batch, then local-shuffle update
     key_roll, key_upd = jax.random.split(keys[0])
@@ -54,7 +55,7 @@ def train_local(network, opt_state, keys):
                     key=key_roll, n_batch=n_batch_local,
                     n_step=N_STEP, discount=DISCOUNT)
     return update_iter(network, opt_state, data, optimizer, key_upd,
-                       N_UPDATE, n_minibatch_local, size_minibatch, C_VALUE)
+                       N_UPDATE, n_minibatch_local, size_minibatch, C_VALUE, axis_name="batch")
 
 
 keys = jax.random.split(jax.random.PRNGKey(42), n_gpu)
@@ -63,14 +64,15 @@ keys = jax.device_put(keys, jax.NamedSharding(mesh, jax.P("batch")))
 network, opt_state, logs = train_local(network, opt_state, keys)
 
 # --- Sync check ---
+
 w = network.trunk.weight
 shards = w.addressable_shards
 print(f"n_shards visible : {len(shards)}")
-if len(shards) > 1:
-    same = all(jnp.array_equal(shards[0].data, s.data) for s in shards[1:])
-    print(f"replicas in sync : {same}")
-else:
-    print("single shard -> replicated by construction, see fallback below")
+
+ref = np.asarray(shards[0].data)
+diffs = [float(np.abs(np.asarray(s.data) - ref).max()) for s in shards[1:]]
+print(f"max |diff| vs shard 0 : {max(diffs):.3e}")
+print(f"replicas in sync : {max(diffs) == 0.0}")
 
 # --- Fallback / stronger check: multi-device == single-device ---
 print(f"loss (mean)      : {float(jnp.mean(logs['loss'])):.6f}")

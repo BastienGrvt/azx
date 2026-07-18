@@ -1,21 +1,5 @@
 """
-Self-play: fully-jittable continuous rollout via lax.scan on a fixed n_step.
-
-Continuous rollout: env.step is wrapped with pgx auto_reset, so a slot that
-terminates immediately restarts a fresh game in-place. No padding, no wasted
-VRAM, every step yields a valid transition -> the whole rollout is jittable
-(no data-dependent masking).
-
-Per step (scan body):
-  1. root eval: network(state) -> (prior, value), mask illegal actions
-  2. mctx search -> improved policy (visit distribution)
-  3. collect target BEFORE step: (obs, policy)
-  4. play sampled action on the REAL env (auto_reset refills terminal slots)
-  5. collect AFTER step: (reward, terminated) -- terminated is the cut flag
-
-Value target = discounted return z_t = Σ γ^k r_{t+k}, computed via backward
-scan. The return is CUT at game boundaries: z = r + γ·z·(1 - terminated), so a
-game's return never leaks across the reset into the next game in the slot.
+ToDo: Set proper header comment
 """
 
 import jax
