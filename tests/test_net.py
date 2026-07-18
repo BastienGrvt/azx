@@ -1,5 +1,5 @@
 """
-Test networks integrity on the toye environement `env_toy`
+Test networks integrity on the toy environement `env_toy`
 """
 
 import jax
