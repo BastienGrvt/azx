@@ -1,3 +1,9 @@
+"""
+Minimal test on EnvToy, should overfit
+
+Run:  uv run python scripts/check_trainer.py
+"""
+
 import time
 
 from env import EnvToy
@@ -13,7 +19,7 @@ my_env = EnvToy()
 meta = Meta(
     env_id=my_env.id,
     net_id="NetToy",
-    description="overfit trainer test",
+    description="refactor check (core/ + parallel/ + display)",
 )
 
 # --- Config ---
@@ -61,14 +67,12 @@ trainer = Trainer(
     network_fn=make_network,
     config_train=config_train,
     config_eval=config_eval,
-    dir_save="runs/overfit_toy",
+    dir_save="runs/check_toy",
 )
 trainer = trainer.init()
 
 t0 = time.perf_counter()
 logs = trainer.fit(eval_every=1, checkpoint_every=1, verbose=True)
 print(f"\ndone in {time.perf_counter() - t0:.1f}s \t {len(logs)} iterations logged")
-
-
 
 

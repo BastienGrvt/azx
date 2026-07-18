@@ -1,13 +1,10 @@
 """
-ToDo: new comment header version
-
+Network update: loss, one gradient step, one full update iteration.
 """
 
 import jax
-import numpy as np
 import equinox as eqx
 import optax
-import time
 
 
 @eqx.filter_value_and_grad(has_aux=True)
@@ -30,40 +27,31 @@ def loss_fn(network, data_minibatch, c_value):
     return loss, {"policy_loss": policy_loss, "value_loss": value_loss}
 
 
-def update_step(gpu_axis, network, opt_state, data_minibatch, optimizer, c_value):
+def update_step(network, opt_state, data_minibatch, optimizer, c_value, gpu_axis):
+    """
+    One gradient step.
+    gpu_axis=None -> bare single-device path (no collectives), used by tests.
+    Under shard_map, pass the mesh axis name: grads are pmean'd to keep replicas
+    identical, metrics too so the logged loss is the global one (out_specs=P()
+    would otherwise silently pick device 0's local value).
+    """
     (loss, loss_dict), grads = loss_fn(network, data_minibatch, c_value)
-    grads = jax.lax.pmean(grads, gpu_axis)
-    loss = jax.lax.pmean(loss, gpu_axis)
-    loss_dict = jax.lax.pmean(loss_dict, gpu_axis)
+    if gpu_axis is not None:
+        grads = jax.lax.pmean(grads, gpu_axis)
+        loss = jax.lax.pmean(loss, gpu_axis)
+        loss_dict = jax.lax.pmean(loss_dict, gpu_axis)
     updates, opt_state = optimizer.update(grads, opt_state, network)
     network = eqx.apply_updates(network, updates)
     return network, opt_state, {"loss": loss, **loss_dict}
 
-# def update_step(network, opt_state, data_minibatch, optimizer, c_value, gpu_axis=None):
-#     """
-#     One gradient step.
-#     gpu_axis=None -> bare single-device path (no collectives), used by tests
-#     and benchmarks. Under shard_map, pass the mesh axis name: grads are pmean'd
-#     to keep replicas identical, metrics too so the logged loss is the global one
-#     (out_specs=P() would otherwise silently pick device 0's local value).
-#     """
-#     (loss, loss_dict), grads = loss_fn(network, data_minibatch, c_value)
-#     if gpu_axis is not None:
-#         grads = jax.lax.pmean(grads, gpu_axis)
-#         loss = jax.lax.pmean(loss, gpu_axis)
-#         loss_dict = jax.lax.pmean(loss_dict, gpu_axis)
-#     updates, opt_state = optimizer.update(grads, opt_state, network)
-#     network = eqx.apply_updates(network, updates)
-#     return network, opt_state, {"loss": loss, **loss_dict}
-
 
 @eqx.filter_jit
 def update_iter(
-    gpu_axis,
     network, opt_state, data_roll, optimizer, key,
     n_update, n_minibatch, size_minibatch, c_value,
+    gpu_axis,
 ):
-    # Two nested scans: 
+    # Two nested scans:
     # -> outer over updates (reshuffle each time),
     # -> inner over minibatches (one grad step each)
     N = n_minibatch * size_minibatch
@@ -77,16 +65,16 @@ def update_iter(
 
         def body_minibatch(carry, idx_minibatch):
             network, opt_state = carry
-            # Builde the shuffeled data from the permutation indices
+            # Build the shuffled data from the permutation indices
             data_minibatch = {k: v[idx_minibatch] for k, v in data_roll.items()}
             network, opt_state, loss = update_step(
-                    gpu_axis=gpu_axis,
-                    network=network,
-                    opt_state=opt_state,
-                    data_minibatch=data_minibatch,
-                    optimizer=optimizer,
-                    c_value=c_value,
-                )
+                network=network,
+                opt_state=opt_state,
+                data_minibatch=data_minibatch,
+                optimizer=optimizer,
+                c_value=c_value,
+                gpu_axis=gpu_axis,
+            )
             return (network, opt_state), loss
 
         # Scan over minibatches permutation indices and update neural network
@@ -97,9 +85,8 @@ def update_iter(
         # Compute the mean loss over the minibatches
         mean_loss = {k: v.mean() for k, v in losses.items()}
         return (network, opt_state), mean_loss
+
     # Scan over subkeys_update (n_update random keys)
     (network, opt_state), logs_nn = jax.lax.scan(body_update, (network, opt_state), subkeys_update)
     # logs_nn: dict of arrays, each shape [n_update]
     return network, opt_state, logs_nn
-
-

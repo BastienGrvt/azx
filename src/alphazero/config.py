@@ -1,5 +1,13 @@
+"""
+Run configuration: metadata, MCTS engine, and the train / eval / agent configs.
+
+All sizes here are GLOBAL
+LOCAL per-device sizes are derived by `parallel.mesh.ShardingPlan`
+"""
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+
 
 @dataclass
 class Meta:
@@ -29,6 +37,7 @@ class MctsEngine:
 
     @property
     def policy_kwargs(self):
+        # Only the kwargs the selected mctx policy accepts
         if self.kind == "muzero":
             return {
                 "temperature": self.temperature,
@@ -56,10 +65,18 @@ class ConfigTrain:
     n_update: int = 8
     n_minibatch: int = 16
     c_value: float = 1.0
-    
+
     @property
     def N(self):
+        """Total samples collected per iteration."""
         return self.n_roll * self.n_step * self.n_batch
+
+    @property
+    def size_minibatch(self):
+        """
+        Samples per gradient step
+        """
+        return self.N // self.n_minibatch
 
     def __post_init__(self):
         if isinstance(self.mcts, dict):
@@ -83,6 +100,7 @@ class ConfigEval:
 
 @dataclass
 class ConfigAgent:
+    # ToDo: consumed by a future `Agent` class (inference only, no training)
     mcts: MctsEngine = field(default_factory=MctsEngine)
     seed: int = 42
     n_step: int = 32
@@ -90,4 +108,6 @@ class ConfigAgent:
     def __post_init__(self):
         if isinstance(self.mcts, dict):
             self.mcts = MctsEngine(**self.mcts)
+
+
 

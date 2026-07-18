@@ -1,6 +1,5 @@
 """
-ToDo: new comment header
-
+MCTS mechanics: pgx dynamics wrapped for mctx + policy call.
 """
 
 import jax
@@ -9,6 +8,7 @@ import equinox as eqx
 import mctx
 
 _POLICIES = {"muzero": mctx.muzero_policy, "gumbel": mctx.gumbel_muzero_policy}
+
 
 def make_recurrent_fn(env, discount):
     # Batch pgx dynamics
@@ -25,7 +25,6 @@ def make_recurrent_fn(env, discount):
 
         # --- network evaluation ---
         # NB: prior_logits is not probability, mctx normalize in the RecurrentFnOutput
-        # /!\ To understand /!\
         prior_logits, value = eqx.filter_vmap(network)(next_state.observation)
 
         # --- pgx -> mctx translations ---
@@ -37,12 +36,14 @@ def make_recurrent_fn(env, discount):
             reward       = reward,
             discount     = discount * (1.0 - terminated),
             prior_logits = jnp.where(next_state.legal_action_mask, prior_logits, -jnp.inf),
-            # value        = value,
-            value = jnp.where(next_state.terminated, 0.0, value),
+            # mctx has no termination concept: discount cuts the backup,
+            # this cuts the leaf value itself
+            value        = jnp.where(next_state.terminated, 0.0, value),
         )
         return out, next_state
 
     return recurrent_fn
+
 
 def make_search_fn(kind, num_sim, **policy_kwargs):
     # Set the policy
@@ -72,5 +73,3 @@ def make_search_fn(kind, num_sim, **policy_kwargs):
         )
 
     return search_fn
-
-
