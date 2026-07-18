@@ -5,6 +5,7 @@ Trainer: orchestration class wrapping train / save / load.
 
 # System package
 from pathlib import Path
+from functools import partial
 import json, dataclasses, time
 
 # GPU package
@@ -21,7 +22,7 @@ from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, Ti
 from .config import Meta, ConfigTrain, ConfigEval
 from .train import train_iter, collect
 from .evaluate import evaluate
-from .search import make_recurrent_fn
+from .search import make_recurrent_fn, make_search_fn
 from .update import update_iter
 
 
@@ -51,6 +52,10 @@ class TrainerState(eqx.Module):
 
 
 class Trainer:
+    """
+    Orchestrater
+    ToDo: temperature evolution through the game
+    """
 
     def __init__(self, meta, env, network_fn, config_train, config_eval, dir_save):
         self.meta = meta
@@ -64,6 +69,16 @@ class Trainer:
         self.optimizer = _OPT[config_train.optimizer](**config_train.optimizer_kwargs)
         self.recurrent_fn_train = make_recurrent_fn(env, discount=config_train.mcts.discount)
         self.recurrent_fn_eval = make_recurrent_fn(env, discount=config_eval.mcts.discount)
+        self.search_fn_train = make_search_fn(
+            kind=config_train.mcts.kind,
+            num_sim=config_train.mcts.num_sim,
+            **config_train.mcts.policy_kwargs
+        )
+        self.search_fn_eval  = make_search_fn(
+            kind=config_eval.mcts.kind,
+            num_sim=config_eval.mcts.num_sim,
+            **config_eval.mcts.policy_kwargs
+        )
         # Mutable state
         self.trainer_state = None
         self.logs = []
@@ -229,26 +244,23 @@ class Trainer:
                     # --- Training ---
                     log = None
                     network, opt_state, log = train_iter(
-                        # Trainer params
+                        # Engine params
                         env=self.env,
-                        recurrent_fn=self.recurrent_fn_train,
-                        optimizer=self.optimizer,
-                        # Trainer state params
                         network=s.network,
-                        opt_state=s.opt_state,
                         key=subkey_train,
-                        # Config params
+                        recurrent_fn=self.recurrent_fn_train,
+                        search_fn=self.search_fn_train,
+                        # Optimizer params
+                        optimizer=self.optimizer,
+                        opt_state=s.opt_state,
+                        c_value=ct.c_value,
+                        # Training params
                         n_roll=ct.n_roll,
                         n_update=ct.n_update,
                         n_minibatch=ct.n_minibatch,
                         n_batch=ct.n_batch,
                         n_step=ct.n_step,
-                        num_sim=ct.mcts.num_sim,
                         discount=ct.mcts.discount,
-                        c_value=ct.c_value,
-                        temperature=ct.mcts.temperature,
-                        dirichlet_fraction=ct.mcts.dirichlet_fraction,
-                        dirichlet_alpha=ct.mcts.dirichlet_alpha,
                     )
                     log["idx_iter"] = idx_iter
 
@@ -261,16 +273,14 @@ class Trainer:
                                 # Trainer params
                                 env=self.env,
                                 recurrent_fn=self.recurrent_fn_eval,
+                                search_fn=self.search_fn_eval,
                                 network=network,
                                 key=subkey_eval,
                                 # Config params
                                 n_batch=ce.n_batch,
                                 n_step=ce.n_step,
-                                num_sim=ce.mcts.num_sim,
                                 discount=ce.mcts.discount,
-                                temperature=ce.mcts.temperature,
-                                dirichlet_fraction=ce.mcts.dirichlet_fraction,
-                                dirichlet_alpha=ce.mcts.dirichlet_alpha,
+                                discount_score=ce.discount_score,
                             )
                             jax.block_until_ready(metrics)
                         eval_metrics = {
@@ -300,26 +310,36 @@ class Trainer:
                     # --- Per-iter print ---
                     if verbose:
                         log_nn_mean = log["logs_nn_mean"]
+                        has_eval = eval_metrics is not None
+                        branch = "├─" if has_eval else "└─"
+
+                        # iter header
+                        progress.console.print(f"[bold blue]iter {idx_iter:3d}[/bold blue]  [dim]tot {log['time_iter']:4.1f}s[/dim]")
+
+                        # train branch
                         progress.console.print(
-                            f"[dim]iter {idx_iter:3d}[/dim]  "
+                            f"[dim]{branch}[/dim] [green]train[/green]  "
                             f"loss=[bold]{log_nn_mean['loss']:.4f}[/bold]  "
                             f"policy={log_nn_mean['policy_loss']:.4f}  "
                             f"value={log_nn_mean['value_loss']:.4f}  "
                             f"val_mean={log['value_mean']:.3f}  "
                             f"[dim]|[/dim]  "
                             f"[cyan]roll {log['time_roll']:4.1f}s[/cyan]  "
-                            f"[yellow]upd {log['time_updates']:4.1f}s[/yellow]  "
-                            f"[dim]tot {log['time_iter']:4.1f}s[/dim]"
+                            f"[yellow]upd {log['time_updates']:4.1f}s[/yellow]"
                         )
-                        if eval_metrics is not None:
+
+                        # eval branch (last child)
+                        if has_eval:
                             progress.console.print(
-                                f"          [green]└─ eval[/green]  "
+                                f"[dim]└─[/dim] [green]eval [/green]  "
                                 f"succ=[bold green]{eval_metrics['success']:.2f}[/bold green]  "
                                 f"score={eval_metrics['score']:.3f}  "
                                 f"len={eval_metrics['length']:.1f}  "
                                 f"[dim]|[/dim]  "
                                 f"[magenta]eval {eval_metrics['time_eval']:4.1f}s[/magenta]"
                             )
+                        progress.console.print()   # blank line between iterations
+
                     progress.update(task, advance=1)
 
             # ===== FINAL =====
@@ -342,13 +362,15 @@ class Trainer:
             with console.status("[bold cyan]Compiling XLA graph for self-play...", spinner="dots"):
                 _, key_warm = jax.random.split(key_train)
                 warm = collect(
-                    env=self.env, network=s.network, recurrent_fn=self.recurrent_fn_train,
+                    env=self.env,
+                    network=s.network,
+                    recurrent_fn=self.recurrent_fn_train,
+                    search_fn=self.search_fn_train,
                     key=key_warm,
-                    n_roll=ct.n_roll, n_batch=ct.n_batch, n_step=ct.n_step, num_sim=ct.mcts.num_sim,
+                    n_roll=ct.n_roll,
+                    n_batch=ct.n_batch,
+                    n_step=ct.n_step,
                     discount=ct.mcts.discount,
-                    temperature=ct.mcts.temperature,
-                    dirichlet_fraction=ct.mcts.dirichlet_fraction,
-                    dirichlet_alpha=ct.mcts.dirichlet_alpha,
                 )
                 jax.block_until_ready(warm)
 
@@ -371,13 +393,15 @@ class Trainer:
                 with console.status("[bold cyan]Compiling XLA graph for eval...", spinner="dots"):
                     _, key_warm_eval = jax.random.split(key_eval)
                     warm_eval = evaluate(
-                        env=self.env, network=s.network, recurrent_fn=self.recurrent_fn_eval,
+                        env=self.env,
+                        network=s.network,
+                        recurrent_fn=self.recurrent_fn_eval,
+                        search_fn=self.search_fn_eval,
                         key=key_warm_eval,
-                        n_batch=ce.n_batch, n_step=ce.n_step, num_sim=ce.mcts.num_sim,
+                        n_batch=ce.n_batch,
+                        n_step=ce.n_step,
                         discount=ce.mcts.discount,
-                        temperature=ce.mcts.temperature,
-                        dirichlet_fraction=ce.mcts.dirichlet_fraction,
-                        dirichlet_alpha=ce.mcts.dirichlet_alpha,
+                        discount_score=ce.discount_score,
                     )
                     jax.block_until_ready(warm_eval)
                     del warm_eval

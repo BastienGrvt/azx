@@ -1,17 +1,22 @@
 {
   "train": {
+    "seed": 0,
     "mcts": {
       "discount": 0.9,
       "num_sim": 16,
+      "kind": "muzero",
       "temperature": 1.0,
       "dirichlet_fraction": 0.25,
-      "dirichlet_alpha": 0.3
+      "dirichlet_alpha": 0.3,
+      "pb_c_init": 1.25,
+      "pb_c_base": 800,
+      "max_num_considered_actions": 16,
+      "gumbel_scale": 1.0
     },
     "optimizer": "adam",
     "optimizer_kwargs": {
       "learning_rate": 0.02
     },
-    "seed": 0,
     "n_iter": 5,
     "n_roll": 4,
     "n_batch": 4096,
@@ -21,15 +26,21 @@
     "c_value": 1.0
   },
   "eval": {
+    "seed": 0,
     "mcts": {
       "discount": 1.0,
       "num_sim": 16,
+      "kind": "muzero",
       "temperature": 0.0,
       "dirichlet_fraction": 0.0,
-      "dirichlet_alpha": 0.3
+      "dirichlet_alpha": 0.3,
+      "pb_c_init": 1.25,
+      "pb_c_base": 1000.0,
+      "max_num_considered_actions": 16,
+      "gumbel_scale": 1.0
     },
-    "seed": 0,
     "n_batch": 4096,
-    "n_step": 32
+    "n_step": 32,
+    "discount_score": 1.0
   }
 }

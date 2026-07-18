@@ -19,9 +19,9 @@ from .update import update_iter
 # ---- n_roll selfplay rounds, agregating data ----
 @eqx.filter_jit
 def collect(
-    env, network, recurrent_fn, key, 
-    n_roll, n_batch, n_step, num_sim, 
-    discount, temperature, dirichlet_fraction, dirichlet_alpha,
+    env, network, recurrent_fn, search_fn, key, 
+    n_roll, n_batch, n_step,
+    discount,
 ):
     """
     Data collector, does n_roll rollout
@@ -35,14 +35,11 @@ def collect(
             env=env,
             network=network,
             recurrent_fn=recurrent_fn,
+            search_fn=search_fn,
             key=key_sub,
             n_batch=n_batch,
             n_step=n_step,
-            num_sim=num_sim, 
             discount=discount, 
-            temperature=temperature,
-            dirichlet_fraction=dirichlet_fraction,
-            dirichlet_alpha=dirichlet_alpha
         )
         return key, game
     
@@ -54,9 +51,11 @@ def collect(
 # ---- AlphaZero training loop ----
 
 def train_iter(
-    env, network, recurrent_fn, optimizer, opt_state, key,
-    n_roll, n_update, n_minibatch, n_batch, n_step, num_sim,
-    discount, c_value, temperature, dirichlet_fraction, dirichlet_alpha,
+    env, network, key,
+    recurrent_fn, search_fn,
+    optimizer, opt_state,
+    n_roll, n_update, n_minibatch, n_batch, n_step,
+    discount, c_value,
 ):
     key_roll, key_update = jax.random.split(key)
     log = {}
@@ -66,15 +65,12 @@ def train_iter(
     data_roll = collect(
         env=env, network=network,
         recurrent_fn=recurrent_fn,
+        search_fn=search_fn,
         key=key_roll,
         n_roll=n_roll,
         n_batch=n_batch,
         n_step=n_step,
-        num_sim=num_sim,
         discount=discount,
-        temperature=temperature,
-        dirichlet_fraction=dirichlet_fraction,
-        dirichlet_alpha=dirichlet_alpha,
     )
     jax.block_until_ready(data_roll)  # accurate roll timing
     tac_roll = time.perf_counter() - tic_roll

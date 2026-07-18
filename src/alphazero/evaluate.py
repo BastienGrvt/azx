@@ -1,14 +1,13 @@
 import jax
 import jax.numpy as jnp
 import equinox as eqx
-from .search import search
 
 
 @eqx.filter_jit
 def _rollout(
-    env, network, recurrent_fn, key,
-    n_batch, n_step, num_sim,
-    discount, temperature, dirichlet_fraction, dirichlet_alpha,
+    env, network, recurrent_fn, search_fn, key,
+    n_batch, n_step,
+    discount, discount_score,
 ):
     init = jax.vmap(env.init)
     step = jax.vmap(env.step)
@@ -22,15 +21,11 @@ def _rollout(
         key, key_mcts, key_step = jax.random.split(key, 3)
 
         # MCTS search
-        mcts_out = search(
+        mcts_out = search_fn(
             network=network,
             recurrent_fn=recurrent_fn,
             state=state,
             key=key_mcts,
-            num_sim=num_sim,
-            temperature=temperature,
-            dirichlet_fraction=dirichlet_fraction,
-            dirichlet_alpha=dirichlet_alpha,
         )
 
         # Greedy play
@@ -70,20 +65,18 @@ def _rollout(
 
 @eqx.filter_jit
 def evaluate(
-    env, network, recurrent_fn, key,
-    n_batch, n_step, num_sim,
-    discount, temperature, dirichlet_fraction, dirichlet_alpha,
+    env, network, recurrent_fn, search_fn, key,
+    n_batch, n_step,
+    discount, discount_score,
 ):
     metrics = _rollout(
         env=env, network=network,
         recurrent_fn=recurrent_fn,
+        search_fn=search_fn,
         key=key,
         n_batch=n_batch,
         n_step=n_step,
-        num_sim=num_sim,
         discount=discount,
-        temperature=temperature,
-        dirichlet_fraction=dirichlet_fraction,
-        dirichlet_alpha=dirichlet_alpha,
+        discount_score=discount_score,
     )
     return metrics

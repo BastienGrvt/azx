@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import equinox as eqx
 import mctx
 
+_POLICIES = {"muzero": mctx.muzero_policy, "gumbel": mctx.gumbel_muzero_policy}
 
 def make_recurrent_fn(env, discount):
     # Batch pgx dynamics
@@ -43,30 +44,33 @@ def make_recurrent_fn(env, discount):
 
     return recurrent_fn
 
-def search(
-    network, recurrent_fn, state, key, num_sim,
-    temperature, dirichlet_fraction, dirichlet_alpha,
-):
-    # Root prior + value from the network, mask illegal actions to -inf
-    prior_logits, value = eqx.filter_vmap(network)(state.observation)
-    prior_logits = jnp.where(state.legal_action_mask, prior_logits, -jnp.inf)
+def make_search_fn(kind, num_sim, **policy_kwargs):
+    # Set the policy
+    if kind not in _POLICIES:
+        raise ValueError(f"unknown policy kind: {kind!r}, expected {list(_POLICIES)}")
+    mctx_policy = _POLICIES[kind]
 
-    # Root node
-    root = mctx.RootFnOutput(
-        prior_logits=prior_logits,
-        value=value,
-        embedding=state,
-    )
+    def search_fn(network, recurrent_fn, state, key):
+        # Root prior + value from the network, mask illegal actions to -inf
+        prior_logits, value = eqx.filter_vmap(network)(state.observation)
+        prior_logits = jnp.where(state.legal_action_mask, prior_logits, -jnp.inf)
+        # Root node
+        root = mctx.RootFnOutput(
+            prior_logits=prior_logits,
+            value=value,
+            embedding=state,
+        )
+        # MCTS search
+        return mctx_policy(
+            params=network,
+            rng_key=key,
+            root=root,
+            recurrent_fn=recurrent_fn,
+            num_simulations=num_sim,
+            invalid_actions=~state.legal_action_mask,
+            **policy_kwargs
+        )
 
-    # MCTS search
-    return mctx.muzero_policy(
-        params=network,
-        rng_key=key,
-        root=root,
-        recurrent_fn=recurrent_fn,
-        num_simulations=num_sim,
-        invalid_actions=~state.legal_action_mask,
-        temperature=temperature,
-        dirichlet_fraction=dirichlet_fraction,
-        dirichlet_alpha=dirichlet_alpha,
-    )
+    return search_fn
+
+

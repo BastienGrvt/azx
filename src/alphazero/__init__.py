@@ -1,7 +1,7 @@
 # Debug
 from .selfplay import selfplay
 from .train import train_iter
-from .search import search, make_recurrent_fn
+from .search import make_recurrent_fn, make_search_fn
 from .evaluate import evaluate
 from .update import update_iter
 

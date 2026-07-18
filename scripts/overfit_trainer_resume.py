@@ -1,10 +1,8 @@
 import time
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 
 from env import EnvToy
 from net import NetToy
-from alphazero import Trainer, ConfigTrain, ConfigEval, MctsEngine, Meta
+from alphazero import Trainer
 
 # --- Network and Env ---
 def make_network(env, key):
@@ -19,5 +17,5 @@ trainer_resumed = Trainer.resume(
 )
 
 t0 = time.perf_counter()
-logs_resumed = trainer_resumed.fit( eval=True, eval_every=1, checkpoint=True, checkpoint_every=1, verbose=True)
-print(f"\nresume done in {time.perf_counter() - t0:.1f}s — " f"{len(logs_resumed)} total iterations logged")
+logs_resumed = trainer_resumed.fit(eval=True, eval_every=1, checkpoint=True, checkpoint_every=1, verbose=True)
+print(f"\nresume done in {time.perf_counter() - t0:.1f}s \t" f"{len(logs_resumed)} total iterations logged")

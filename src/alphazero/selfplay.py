@@ -21,16 +21,14 @@ game's return never leaks across the reset into the next game in the slot.
 import jax
 import jax.numpy as jnp
 import equinox as eqx
-import mctx
 from pgx.experimental import auto_reset
-from .search import search
 
 
 @eqx.filter_jit
 def _rollout(
-    env, network, recurrent_fn, key, 
-    n_batch, n_step, num_sim, 
-    discount, temperature, dirichlet_fraction, dirichlet_alpha
+    env, network, recurrent_fn, search_fn, key, 
+    n_batch, n_step,
+    discount,
 ):
     init = jax.vmap(env.init)
     step = jax.vmap(auto_reset(env.step, env.init))  # refills terminal slots
@@ -45,24 +43,20 @@ def _rollout(
         key, key_mcts, key_step = jax.random.split(key, 3)
 
         # MCTS Search Call
-        mcts_out = search(
+        mcts_out = search_fn(
             network=network, 
             recurrent_fn=recurrent_fn, 
             state=state, 
             key=key_mcts, 
-            num_sim=num_sim,
-            temperature=temperature, 
-            dirichlet_fraction=dirichlet_fraction, 
-            dirichlet_alpha=dirichlet_alpha,
         )
 
-        # Pre-collection data (aligned on o_t)
+        # Pre-collection data (observation and policy: o_t, pi_t)
         obs_out, pi_out = state.observation, mcts_out.action_weights
 
-        # Play the move (auto_reset: on termination, slot restarts; reward/terminated preserved)
+        # Play the move
         state = step(state, mcts_out.action, jax.random.split(key_step, n_batch))
 
-        # Post-collection data (reward of the action taken on o_t; terminated = cut flag)
+        # Post-collection data (reward and terminated: r_t = R(o_t, a_t)=R(o_{t+1}) )
         rew_out, term_out = state.rewards[:, 0], state.terminated
         return (state, key), (obs_out, pi_out, rew_out, term_out)
 
@@ -103,22 +97,19 @@ def _flatten(data):
 
 @eqx.filter_jit
 def selfplay(
-    env, network, recurrent_fn, key, 
-    n_batch, n_step, num_sim, 
-    discount, temperature, dirichlet_fraction, dirichlet_alpha,
+    env, network, recurrent_fn, search_fn, key, 
+    n_batch, n_step,
+    discount,
 ):
     data = _rollout(
             env=env,
             network=network,
             recurrent_fn=recurrent_fn,
+            search_fn=search_fn,
             key=key,
             n_batch=n_batch,
             n_step=n_step,
-            num_sim=num_sim, 
             discount=discount, 
-            temperature=temperature,
-            dirichlet_fraction=dirichlet_fraction,
-            dirichlet_alpha=dirichlet_alpha
         )
     return _flatten(data)
 
