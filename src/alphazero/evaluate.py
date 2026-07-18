@@ -4,7 +4,7 @@ import equinox as eqx
 from functools import partial
 
 
-@eqx.filter_jit
+# @eqx.filter_jit
 def _rollout(env, network, recurrent_fn, search_fn, key, n_batch, n_step):
     """
     Greedy rollout
@@ -73,7 +73,7 @@ def make_evaluate_global(
         length = jnp.where(success, jnp.argmax(terminated, axis=0) + 1, -1)
         return length, score, success
 
-    return evaluate_local
+    return eqx.filter_jit(evaluate_local)
 
 
 def evaluate(gpu_mesh, gpu_axis, evaluate_global, network, key):

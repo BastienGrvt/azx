@@ -26,3 +26,8 @@ testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = [ "src/env", "src/alphazero", "src/net" ]
+
+[dependency-groups]
+dev = [
+    "tensorboard>=2.21.0",
+]

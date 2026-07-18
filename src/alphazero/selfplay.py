@@ -8,7 +8,7 @@ import equinox as eqx
 from pgx.experimental import auto_reset
 
 
-@eqx.filter_jit
+# @eqx.filter_jit
 def _rollout(
     env, network, recurrent_fn, search_fn, key, 
     n_batch, n_step,
@@ -79,7 +79,7 @@ def _flatten(data):
     }
 
 
-@eqx.filter_jit
+# @eqx.filter_jit
 def selfplay(
     env, network, recurrent_fn, search_fn, key, 
     n_batch, n_step,

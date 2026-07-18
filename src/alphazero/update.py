@@ -39,6 +39,22 @@ def update_step(gpu_axis, network, opt_state, data_minibatch, optimizer, c_value
     network = eqx.apply_updates(network, updates)
     return network, opt_state, {"loss": loss, **loss_dict}
 
+# def update_step(network, opt_state, data_minibatch, optimizer, c_value, gpu_axis=None):
+#     """
+#     One gradient step.
+#     gpu_axis=None -> bare single-device path (no collectives), used by tests
+#     and benchmarks. Under shard_map, pass the mesh axis name: grads are pmean'd
+#     to keep replicas identical, metrics too so the logged loss is the global one
+#     (out_specs=P() would otherwise silently pick device 0's local value).
+#     """
+#     (loss, loss_dict), grads = loss_fn(network, data_minibatch, c_value)
+#     if gpu_axis is not None:
+#         grads = jax.lax.pmean(grads, gpu_axis)
+#         loss = jax.lax.pmean(loss, gpu_axis)
+#         loss_dict = jax.lax.pmean(loss_dict, gpu_axis)
+#     updates, opt_state = optimizer.update(grads, opt_state, network)
+#     network = eqx.apply_updates(network, updates)
+#     return network, opt_state, {"loss": loss, **loss_dict}
 
 
 @eqx.filter_jit

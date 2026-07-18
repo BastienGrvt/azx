@@ -56,7 +56,7 @@ def make_collect_global(
         # [n_roll, n_step*n_batch_local, *] -> [N_local, *]
         return {k: v.reshape(-1, *v.shape[2:]) for k, v in data.items()}
 
-    return collect_local
+    return eqx.filter_jit(collect_local)
 
 
 def make_update_global(
@@ -92,7 +92,7 @@ def make_update_global(
             size_minibatch=size_minibatch_local,
         )
 
-    return update_local
+    return eqx.filter_jit(update_local)
 
 
 def train_iter(
