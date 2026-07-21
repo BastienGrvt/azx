@@ -30,8 +30,8 @@ Requires Python ≥ 3.14 and [`uv`](https://docs.astral.sh/uv/) for dependency m
 Built on `jax[cuda13]`, but runs on CPU as well.
 
 ```bash
-git clone https://github.com/BastienGrvt/alphaxero
-cd alphaxero
+git clone https://github.com/BastienGrvt/azx
+cd azx
 uv syn
 ```
 
@@ -47,8 +47,8 @@ The package ships a toy environment (`EnvToy`) and network (`NetToy`) running ou
 See [`examples/training.py`](examples/training.py) for a commented end-to-end run:
 
 ```python
-from alphaxero import Trainer, ConfigTrain, ConfigEval, Meta
-from alphaxero.toy import EnvToy, NetToy
+from azx import Trainer, ConfigTrain, ConfigEval, Meta
+from azx.toy import EnvToy, NetToy
 
 env = EnvToy()
 make_network = lambda env, key: NetToy(env.observation_shape, env.num_actions, key=key)
@@ -72,14 +72,14 @@ uv run python examples/training.py
 To plug in your own `pgx` environment, validate it against the API contract first:
 
 ```python
-from alphaxero.testing import pgx_api_check
+from azx.testing import pgx_api_check
 pgx_api_check(MyEnv())
 ```
 
 ## Repository structure
 
 ```
-src/alphaxero/
+src/azx/
 ├── core/       # pure, mesh-agnostic JAX functions (search, rollout, loss, metrics)
 ├── parallel/   # sharding and multi-device orchestration
 ├── toy/        # EnvToy / NetToy — toy env and network (dev scaffolding)

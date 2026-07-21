@@ -18,8 +18,8 @@ Run:  shell-run cuda-wsl uv run python examples/training.py
 
 import time
 
-from alphaxero import Trainer, ConfigTrain, ConfigEval, MctsEngine, Meta
-from alphaxero.toy import EnvToy, NetToy
+from azx import Trainer, ConfigTrain, ConfigEval, MctsEngine, Meta
+from azx.toy import EnvToy, NetToy
 
 
 # --- Environment + network factory ---
