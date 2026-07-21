@@ -8,13 +8,6 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.14"
 keywords = ["alphazero", "muzero", "mcts", "reinforcement-learning", "jax", "equinox", "mctx", "pgx"]
-classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
-    "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-]
 dependencies = [
     "equinox>=0.13.8",
     "jax[cuda13]",

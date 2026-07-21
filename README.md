@@ -2,21 +2,38 @@
 
 A compact AlphaZero trainer in JAX, built on [`mctx`](https://github.com/google-deepmind/mctx) for the MCTS search and the [`pgx`](https://github.com/sotetsuk/pgx) environment standard.
 
-> **Status: work in progress.** 
+## Status
+
+**Status: work in progress.** 
 > APIs are unstable and will change without notice. 
 > Personal research/learning codebase not a maintained library.
 
+**Implemented features:**
+- Fully JIT-compiled, batched self-play training loop in JAX
+- Multi-GPU support 
+- Continuous rollout: no idle terminal slots, games auto-reset within the batch
+- Checkpointing and bit-exact resume
+- Gumbel AlphaZero policy available alongside standard AlphaZero
+- Toy environment and network (`EnvToy`, `NetToy`) for out-of-the-box testing
+- pgx API conformance test for custom environments
+
+**Future work:**
+- Temperature annealing over training
+- Inference / play API (loading a trained checkpoint to play against or evaluate)
+- Replay buffer across iterations
+- MuZero support
+
+
 ## Installation
 
-Requires Python ≥ 3.14. 
-Dependency management uses [`uv`](https://docs.astral.sh/uv/):
+Requires Python ≥ 3.14 and [`uv`](https://docs.astral.sh/uv/) for dependency management.
+Built on `jax[cuda13]`, but runs on CPU as well.
 
 ```bash
 git clone https://github.com/BastienGrvt/alphaxero
 cd alphaxero
-uv sync
+uv syn
 ```
-`jax[cuda13]` is used for GPU, toy example below also runs on CPU.
 
 ## Usage
 
