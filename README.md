@@ -1,4 +1,4 @@
-# AlphaXero
+# azx
 
 A compact AlphaZero trainer in JAX, built on [`mctx`](https://github.com/google-deepmind/mctx) for the MCTS search and the [`pgx`](https://github.com/sotetsuk/pgx) environment standard.
 

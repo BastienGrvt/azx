@@ -1,5 +1,5 @@
 [project]
-name = "alphaxero"
+name = "azx"
 version = "0.1.0"
 description = "A JAX/Equinox AlphaZero trainer built on mctx (MCTS) and the pgx environment standard."
 authors = [{ name = "Bastien Grivet", email = "73183679+BastienGrvt@users.noreply.github.com" }]
@@ -7,7 +7,6 @@ readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.14"
-keywords = ["alphazero", "muzero", "mcts", "reinforcement-learning", "jax", "equinox", "mctx", "pgx"]
 dependencies = [
     "equinox>=0.13.8",
     "jax[cuda13]",
@@ -19,15 +18,15 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/BastienGrvt/alphaxero"
-Issues = "https://github.com/BastienGrvt/alphaxero/issues"
+Homepage = "https://github.com/BastienGrvt/azx"
+Issues = "https://github.com/BastienGrvt/azx/issues"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/alphaxero"]
+packages = ["src/azx"]
 
 [tool.uv]
 package = true
