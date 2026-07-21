@@ -37,7 +37,7 @@ config_train = ConfigTrain(
     optimizer="adam",
     optimizer_kwargs={"learning_rate": 2e-2},
     seed=0,
-    n_iter=5,
+    n_iter=3,
     n_roll=4,
     n_batch=2**12,
     n_step=32,
@@ -67,7 +67,7 @@ trainer = Trainer(
     network_fn=make_network,
     config_train=config_train,
     config_eval=config_eval,
-    dir_save="runs/check_toy",
+    dir_save="data/runs/check_toy",
 )
 trainer = trainer.init()
 

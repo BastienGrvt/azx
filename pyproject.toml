@@ -1,8 +1,11 @@
 [project]
-name = "alphazero"
+name = "alphaxero"
 version = "0.1.0"
-description = "mctx-based Alphazero project"
+description = "Implementation of a mctx-based AlphaZero trainer with pgx standard."
+authors = [{ name = "Bastien Grivet", email = "73183679+BastienGrvt@users.noreply.github.com" }]
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.14"
 dependencies = [
     "equinox>=0.13.8",
@@ -15,8 +18,10 @@ dependencies = [
     "rich>=14.3.4",
 ]
 
-[tool.uv.sources]
-mctx = { workspace = true }
+
+[project.urls]
+Homepage = "https://github.com/BastienGrvt/alphaxero"
+Issues = "https://github.com/BastienGrvt/alphaxero/issues"
 
 [tool.uv]
 package = true
@@ -25,9 +30,6 @@ package = true
 testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
-packages = [ "src/env", "src/alphazero", "src/net" ]
+packages = [ "src/alphazero" ]
 
-[dependency-groups]
-dev = [
-    "tensorboard>=2.21.0",
-]
+
