@@ -8,13 +8,23 @@ __pycache__/
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
 
 # Virtual environments
-.venv
+.venv/
 
-# Other
-html/*
-runs/*
-figs/*
+# Caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Training outputs and checkpoints
+local/
+*.eqx
+
+# Misc tooling output
+html/
+runs/
+figs/
 repomix-*

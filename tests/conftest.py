@@ -1,8 +1,7 @@
 import jax
 import pytest
 
-from env import EnvToy
-from net import NetToy
+from alphaxero.toy import EnvToy, NetToy
 
 
 # ------ Object to test -----
