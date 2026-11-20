@@ -1,6 +1,14 @@
-# Claude Code
+# AI agents / assistants
 .claude/
 CLAUDE.md
+.cursor/
+.windsurf/
+.codex/
+AGENTS.md
+.aider*
+.cline/
+.roo/
+.github/copilot-instructions.md
 
 # Python-generated files
 __pycache__/

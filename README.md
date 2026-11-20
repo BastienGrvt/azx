@@ -2,6 +2,8 @@
 
 A compact AlphaZero trainer in JAX, built on [`mctx`](https://github.com/google-deepmind/mctx) for the MCTS search and the [`pgx`](https://github.com/sotetsuk/pgx) environment standard.
 
+![azx self-play example](assets/example_azx.gif)
+
 ## Status
 
 **Status: work in progress.** 
